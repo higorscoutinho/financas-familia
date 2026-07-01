@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Finanças Família</title>
+<meta name="description" content="Sistema financeiro familiar — simples, rápido e sincronizado com Google Sheets.">
+<meta name="theme-color" content="#3D5AFE">
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="brand-mark">F</div>
+    <h1>Finanças Família</h1>
+    <p class="sub">Quem está usando agora?</p>
+    <div class="user-pick">
+      <button class="user-btn" id="btn-user1" data-name="Usuário 1">
+        <span class="user-avatar">U1</span> Usuário 1
+      </button>
+      <button class="user-btn" id="btn-user2" data-name="Usuário 2">
+        <span class="user-avatar">U2</span> Usuário 2
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <span>Finanças Família</span>
+    </div>
+    <ul class="nav-list" id="nav-list"></ul>
+    <div class="sidebar-footer">
+      <div class="current-user-pill">
+        <span class="user-avatar" id="user-avatar-letter" style="width:20px;height:20px;font-size:10px;"></span>
+        <span id="current-user-name"></span>
+      </div>
+      <button class="theme-toggle" id="theme-toggle-btn">🌗 Alternar tema</button>
+      <button class="logout-btn" id="logout-btn">↩ Trocar de usuário</button>
+    </div>
+  </aside>
+
+  <main class="main" id="main-content"></main>
+
+  <button class="fab" id="fab-add" title="Adicionar (atalho: D ou R)">+</button>
+
+  <nav class="bottom-nav" id="bottom-nav"></nav>
+</div>
+
+<!-- ================= MODAIS / TOASTS ================= -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div id="modal-root"></div>
+</div>
+<div class="more-menu-sheet" id="more-menu-sheet">
+  <div class="more-menu-card" id="more-menu-card"></div>
+</div>
+<div class="toast-stack" id="toast-stack"></div>
+
+<!-- ================= SCRIPTS ================= -->
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/api.js"></script>
+<script src="js/store.js"></script>
+<script src="js/actions.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
