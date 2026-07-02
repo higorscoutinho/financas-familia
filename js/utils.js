@@ -17,12 +17,23 @@ const Utils = {
   },
 
   monthKey(dateStr) {
-    // "2026-06-15" -> "2026-06"
     return (dateStr || Utils.todayISO()).slice(0, 7);
   },
 
   currentMonthKey() {
     return Utils.todayISO().slice(0, 7);
+  },
+
+  prevMonthKey(mk) {
+    const [y, m] = mk.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  },
+
+  nextMonthKey(mk) {
+    const [y, m] = mk.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   },
 
   fmtDateShort(dateStr) {
@@ -38,14 +49,15 @@ const Utils = {
   },
 
   monthLabel(monthKey) {
+    if (!monthKey) return "—";
     const [y, m] = monthKey.split("-");
-    const names = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const names = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
     return `${names[parseInt(m, 10) - 1]} ${y}`;
   },
 
   daysUntil(dueDay) {
-    const now = new Date();
-    const due = new Date(now.getFullYear(), now.getMonth(), dueDay);
+    const now  = new Date();
+    const due  = new Date(now.getFullYear(), now.getMonth(), dueDay);
     const diff = Math.round((due - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
     return diff;
   },
@@ -59,8 +71,9 @@ const Utils = {
     return new Date().getDate();
   },
 
-  toast(msg, type = "default") {
+  toast(msg) {
     const stack = document.getElementById("toast-stack");
+    if (!stack) return;
     const el = document.createElement("div");
     el.className = "toast";
     el.textContent = msg;
@@ -70,10 +83,7 @@ const Utils = {
 
   debounce(fn, wait = 250) {
     let t;
-    return (...args) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...args), wait);
-    };
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
   },
 
   escapeHtml(str) {
@@ -82,9 +92,8 @@ const Utils = {
     return div.innerHTML;
   },
 
-  // Paleta consistente para gráficos de categoria
   categoryColor(name) {
-    const palette = ["#3D5AFE", "#1FA971", "#DD8B1B", "#E5484D", "#8E5BF2", "#1BBFD1", "#F25CA0", "#6B7280"];
+    const palette = ["#3D5AFE","#1FA971","#DD8B1B","#E5484D","#8E5BF2","#1BBFD1","#F25CA0","#6B7280"];
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return palette[Math.abs(hash) % palette.length];
