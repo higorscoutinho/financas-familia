@@ -18,58 +18,69 @@
 </head>
 <body>
 
-<!-- ================= LOGIN ================= -->
+<!-- ===================== LOGIN ===================== -->
 <div id="login-screen">
   <div class="login-card">
     <div class="brand-mark">F</div>
     <h1>Finanças Família</h1>
     <p class="sub">Quem está usando agora?</p>
     <div class="user-pick">
-      <button class="user-btn" id="btn-user1" data-name="Higor">
-        <span class="user-avatar">H</span> Higor
+      <button class="user-btn" id="btn-user1" data-name="Usuário 1">
+        <span class="user-avatar">U</span>
+        <span class="user-label">Usuário 1</span>
       </button>
-      <button class="user-btn" id="btn-user2" data-name="Bia">
-        <span class="user-avatar">B</span> Bia
+      <button class="user-btn" id="btn-user2" data-name="Usuário 2">
+        <span class="user-avatar">U</span>
+        <span class="user-label">Usuário 2</span>
       </button>
     </div>
   </div>
 </div>
 
-<!-- ================= APP ================= -->
+<!-- ===================== APP ===================== -->
 <div id="app">
+
+  <!-- Sidebar (desktop) -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark"></div>
+      <div class="brand-mark" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--color-accent),#8AA0FF);display:inline-block;"></div>
       <span>Finanças Família</span>
     </div>
     <ul class="nav-list" id="nav-list"></ul>
     <div class="sidebar-footer">
       <div class="current-user-pill">
-        <span class="user-avatar" id="user-avatar-letter" style="width:20px;height:20px;font-size:10px;"></span>
+        <span class="user-avatar" id="user-avatar-letter"
+              style="width:20px;height:20px;font-size:10px;border-radius:50%;background:var(--color-accent-soft);color:var(--color-accent);display:flex;align-items:center;justify-content:center;">
+        </span>
         <span id="current-user-name"></span>
       </div>
       <button class="theme-toggle" id="theme-toggle-btn">🌗 Alternar tema</button>
-      <button class="logout-btn" id="logout-btn">↩ Trocar de usuário</button>
+      <button class="logout-btn"   id="logout-btn">↩ Trocar de usuário</button>
     </div>
   </aside>
 
+  <!-- Conteúdo principal -->
   <main class="main" id="main-content"></main>
 
+  <!-- FAB -->
   <button class="fab" id="fab-add" title="Adicionar (atalho: D ou R)">+</button>
 
+  <!-- Bottom nav (mobile) -->
   <nav class="bottom-nav" id="bottom-nav"></nav>
 </div>
 
-<!-- ================= MODAIS / TOASTS ================= -->
+<!-- ===================== MODAIS / OVERLAYS ===================== -->
 <div class="modal-backdrop" id="modal-backdrop">
   <div id="modal-root"></div>
 </div>
+
 <div class="more-menu-sheet" id="more-menu-sheet">
   <div class="more-menu-card" id="more-menu-card"></div>
 </div>
+
 <div class="toast-stack" id="toast-stack"></div>
 
-<!-- ================= SCRIPTS ================= -->
+<!-- ===================== SCRIPTS ===================== -->
 <script src="js/config.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/charts.js"></script>
