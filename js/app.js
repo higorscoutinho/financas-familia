@@ -1,47 +1,54 @@
 /* =========================================================
-   app.js — Núcleo: navegação, seletor de mês global
-   MUDANÇAS:
-   - App.selectedMonth → mês selecionado globalmente
-   - setMonth() → troca o mês e re-renderiza tudo
+   app.js — Núcleo da aplicação
+   ALTERAÇÕES:
+   - NAV_ITEMS reordenados conforme solicitado
+   - setMonth() chama Store.ensureFixedBillsForMonth(mk)
+     para que contas fixas existam em qualquer mês consultado
    ========================================================= */
 
 const NAV_ITEMS = [
-  { id: "dashboard",     label: "Dashboard",       icon: "🏠" },
-  { id: "fixas",         label: "Contas Fixas",     icon: "📌" },
-  { id: "despesas",      label: "Despesas",         icon: "💸" },
-  { id: "receitas",      label: "Receitas",         icon: "💰" },
-  { id: "cartoes",       label: "Cartões",          icon: "💳" },
-  { id: "parcelamentos", label: "Parcelamentos",    icon: "📦" },
-  { id: "metas",         label: "Metas",            icon: "🎯" },
-  { id: "relatorios",    label: "Relatórios",       icon: "📊" },
-  { id: "config",        label: "Configurações",    icon: "⚙️" },
+  { id: "dashboard",     label: "Dashboard",      icon: "🏠" },
+  { id: "fixas",         label: "Contas Fixas",   icon: "📌" },
+  { id: "parcelamentos", label: "Parcelamentos",  icon: "📦" },
+  { id: "despesas",      label: "Despesas",       icon: "💸" },
+  { id: "receitas",      label: "Receitas",       icon: "💰" },
+  { id: "metas",         label: "Metas",          icon: "🎯" },
+  { id: "relatorios",    label: "Relatórios",     icon: "📊" },
+  { id: "cartoes",       label: "Cartões",        icon: "💳" },
+  { id: "config",        label: "Configurações",  icon: "⚙️" },
 ];
-const BOTTOM_NAV_IDS = ["dashboard", "despesas", "fixas", "relatorios"];
+
+// Os 4 que aparecem na barra inferior do celular
+const BOTTOM_NAV_IDS = ["dashboard", "fixas", "despesas", "relatorios"];
 
 const App = {
   currentUser:   null,
   currentPage:   "dashboard",
-  selectedMonth: Utils.currentMonthKey(), // "2026-06" — muda via setMonth()
-  filters: { categoria: "todas", status: "todos", busca: "" },
+  selectedMonth: Utils.currentMonthKey(),
+  filters:       { categoria: "todas", busca: "" },
 
-  // -------- Auth --------
+  // ── Auth ──────────────────────────────────────────────
   async start() {
-    const savedTheme = localStorage.getItem(LS_THEME) || "light";
-    document.documentElement.setAttribute("data-theme", savedTheme);
+    const saved = localStorage.getItem(LS_THEME) || "light";
+    document.documentElement.setAttribute("data-theme", saved);
     this.renderLogin();
     const savedUser = localStorage.getItem(LS_USER);
     if (savedUser) { this.currentUser = savedUser; await this.enterApp(); }
   },
 
   renderLogin() {
-    document.getElementById("btn-user1").onclick = () => this.login(window.APP_CONFIG?.USER_1 || "Usuário 1");
-    document.getElementById("btn-user2").onclick = () => this.login(window.APP_CONFIG?.USER_2 || "Usuário 2");
-    document.getElementById("btn-user1").dataset.name = window.APP_CONFIG?.USER_1 || "Usuário 1";
-    document.getElementById("btn-user2").dataset.name = window.APP_CONFIG?.USER_2 || "Usuário 2";
-    document.getElementById("btn-user1").querySelector(".user-avatar").textContent = (window.APP_CONFIG?.USER_1 || "U1")[0];
-    document.getElementById("btn-user2").querySelector(".user-avatar").textContent = (window.APP_CONFIG?.USER_2 || "U2")[0];
-    document.querySelector("#btn-user1 .user-label").textContent = window.APP_CONFIG?.USER_1 || "Usuário 1";
-    document.querySelector("#btn-user2 .user-label").textContent = window.APP_CONFIG?.USER_2 || "Usuário 2";
+    const u1 = window.APP_CONFIG?.USER_1 || "Usuário 1";
+    const u2 = window.APP_CONFIG?.USER_2 || "Usuário 2";
+    const b1 = document.getElementById("btn-user1");
+    const b2 = document.getElementById("btn-user2");
+    b1.dataset.name = u1;
+    b2.dataset.name = u2;
+    b1.querySelector(".user-avatar").textContent = u1[0].toUpperCase();
+    b2.querySelector(".user-avatar").textContent = u2[0].toUpperCase();
+    b1.querySelector(".user-label").textContent  = u1;
+    b2.querySelector(".user-label").textContent  = u2;
+    b1.onclick = () => this.login(u1);
+    b2.onclick = () => this.login(u2);
   },
 
   async login(name) {
@@ -55,19 +62,21 @@ const App = {
   async enterApp() {
     document.getElementById("login-screen").style.display = "none";
     document.getElementById("app").classList.add("active");
-    document.getElementById("current-user-name").textContent = this.currentUser;
-    document.getElementById("user-avatar-letter").textContent = this.currentUser?.[0]?.toUpperCase() || "?";
+    document.getElementById("current-user-name").textContent   = this.currentUser;
+    document.getElementById("user-avatar-letter").textContent  = this.currentUser[0].toUpperCase();
     this.buildNav();
     await Store.init();
     this.goTo("dashboard");
     this.bindGlobalEvents();
   },
 
-  // -------- Seletor de mês global --------
+  // ── Seletor de mês ────────────────────────────────────
   setMonth(mk) {
+    if (!mk) return;
     this.selectedMonth = mk;
-    // Atualiza o input tipo month em qualquer lugar que esteja visível
     document.querySelectorAll(".month-picker-input").forEach((el) => { el.value = mk; });
+    // Garante que contas fixas existam para o mês selecionado
+    Store.ensureFixedBillsForMonth(mk);
     Pages.render(this.currentPage);
   },
 
@@ -85,27 +94,36 @@ const App = {
 
   isCurrentMonth() { return this.selectedMonth === Utils.currentMonthKey(); },
 
-  // -------- Nav --------
+  // ── Navegação ─────────────────────────────────────────
   buildNav() {
+    // Sidebar (desktop)
     const navList = document.getElementById("nav-list");
     navList.innerHTML = NAV_ITEMS.map(
       (it) => `<li class="nav-item" data-page="${it.id}"><span class="ic">${it.icon}</span>${it.label}</li>`
     ).join("");
-    navList.querySelectorAll(".nav-item").forEach((el) => { el.onclick = () => this.goTo(el.dataset.page); });
-
-    const bottomNav = document.getElementById("bottom-nav");
-    bottomNav.innerHTML = BOTTOM_NAV_IDS.map((id) => {
-      const it = NAV_ITEMS.find((n) => n.id === id);
-      return `<button class="bn-item" data-page="${id}"><span class="ic">${it.icon}</span>${it.label}</button>`;
-    }).join("") + `<button class="bn-item bn-more" data-page="more"><span class="ic">⋯</span>Mais</button>`;
-
-    bottomNav.querySelectorAll(".bn-item").forEach((el) => {
-      el.onclick = () => (el.dataset.page === "more" ? this.openMoreMenu() : this.goTo(el.dataset.page));
+    navList.querySelectorAll(".nav-item").forEach((el) => {
+      el.onclick = () => this.goTo(el.dataset.page);
     });
 
+    // Bottom nav (mobile)
+    const bottomNav = document.getElementById("bottom-nav");
+    bottomNav.innerHTML =
+      BOTTOM_NAV_IDS.map((id) => {
+        const it = NAV_ITEMS.find((n) => n.id === id);
+        return `<button class="bn-item" data-page="${id}"><span class="ic">${it.icon}</span>${it.label}</button>`;
+      }).join("") +
+      `<button class="bn-item bn-more" data-page="more"><span class="ic">⋯</span>Mais</button>`;
+
+    bottomNav.querySelectorAll(".bn-item").forEach((el) => {
+      el.onclick = () => el.dataset.page === "more" ? this.openMoreMenu() : this.goTo(el.dataset.page);
+    });
+
+    // More-menu sheet (mobile)
     const moreCard = document.getElementById("more-menu-card");
-    moreCard.innerHTML = NAV_ITEMS.filter((n) => !BOTTOM_NAV_IDS.includes(n.id))
-      .map((it) => `<button class="mm-item" data-page="${it.id}"><span class="ic-wrap">${it.icon}</span>${it.label}</button>`).join("");
+    moreCard.innerHTML = NAV_ITEMS
+      .filter((n) => !BOTTOM_NAV_IDS.includes(n.id))
+      .map((it) => `<button class="mm-item" data-page="${it.id}"><span class="ic-wrap">${it.icon}</span>${it.label}</button>`)
+      .join("");
     moreCard.querySelectorAll(".mm-item").forEach((el) => {
       el.onclick = () => { this.closeMoreMenu(); this.goTo(el.dataset.page); };
     });
@@ -121,25 +139,27 @@ const App = {
     Pages.render(page);
   },
 
+  // ── Eventos globais ───────────────────────────────────
   bindGlobalEvents() {
     document.getElementById("theme-toggle-btn").onclick = () => {
       const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", next);
       localStorage.setItem(LS_THEME, next);
     };
-    document.getElementById("logout-btn").onclick = () => this.logout();
-    document.getElementById("fab-add").onclick = () => Modals.openQuickAdd();
+    document.getElementById("logout-btn").onclick   = () => this.logout();
+    document.getElementById("fab-add").onclick      = () => Modals.openQuickAdd();
     document.getElementById("more-menu-sheet").onclick = (e) => {
       if (e.target.id === "more-menu-sheet") this.closeMoreMenu();
     };
+
+    // Atalhos: D = despesa | R = receita | ← → = mês | Esc = fechar modal
     document.addEventListener("keydown", (e) => {
       if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) return;
       if (e.key.toLowerCase() === "d") Modals.openDespesa();
       if (e.key.toLowerCase() === "r") Modals.openReceita();
-      if (e.key === "/") { e.preventDefault(); document.getElementById("global-search")?.focus(); }
-      if (e.key === "Escape") Modals.closeAll();
       if (e.key === "ArrowLeft")  this.prevMonth();
       if (e.key === "ArrowRight") this.nextMonth();
+      if (e.key === "Escape")     Modals.closeAll();
     });
   },
 };
