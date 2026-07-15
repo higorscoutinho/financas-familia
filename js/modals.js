@@ -291,4 +291,35 @@ const Modals = {
       Modals.closeAll();
     });
   },
+// ── Nota adesiva ──────────────────────────────────────
+  openNota(id) {
+    const item  = id ? Store.data.notas.find((n) => n.id === id) : null;
+    const cores = ["#FFF9C4","#C8E6C9","#BBDEFB","#F8BBD0","#FFE0B2","#E1BEE7","#B2EBF2","#DCEDC8"];
+    const corAtual = item?.cor || "#FFF9C4";
+    const corPicker = cores.map((c) =>
+      `<button type="button" class="cor-btn ${c===corAtual?"selected":""}" data-cor="${c}"
+         style="background:${c}" onclick="this.closest('form').querySelector('[name=cor]').value='${c}';this.closest('.cor-picker').querySelectorAll('.cor-btn').forEach(b=>b.classList.remove('selected'));this.classList.add('selected')"></button>`
+    ).join("");
+
+    this.open(item ? "Editar nota" : "Nova nota", `
+      <div class="field">
+        <label>Título</label>
+        <input name="titulo" value="${item?.titulo||""}" placeholder="Título rápido..." autofocus>
+      </div>
+      <div class="field">
+        <label>Conteúdo</label>
+        <textarea name="conteudo" rows="5" placeholder="Escreva sua nota aqui...">${item?.conteudo||""}</textarea>
+      </div>
+      <div class="field">
+        <label>Cor da nota</label>
+        <div class="cor-picker">${corPicker}</div>
+        <input type="hidden" name="cor" value="${corAtual}">
+      </div>
+      ${id ? `<input type="hidden" name="id" value="${id}">` : ""}
+    `, (fd) => {
+      const dados = Object.fromEntries(fd.entries());
+      Actions.saveNota(dados);
+      Modals.closeAll();
+    });
+  },
 };
