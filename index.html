@@ -4,87 +4,73 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Finanças Família</title>
-<meta name="description" content="Sistema financeiro familiar — simples, rápido e sincronizado com Google Sheets.">
 <meta name="theme-color" content="#3D5AFE">
-
-<!-- PWA -->
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Finanças">
-
 <link rel="stylesheet" href="css/style.css">
+<script>
+  // Aplica o tema salvo antes de qualquer render (evita flash)
+  (function(){
+    const t = localStorage.getItem("ff_theme_v1") || "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
 </head>
 <body>
 
-<!-- ===================== LOGIN ===================== -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="brand-mark">F</div>
-    <h1>Finanças Família</h1>
-    <p class="sub">Quem está usando agora?</p>
-    <div class="user-pick">
-      <button class="user-btn" id="btn-user1" data-name="Usuário 1">
-        <span class="user-avatar">U</span>
-        <span class="user-label">Usuário 1</span>
-      </button>
-      <button class="user-btn" id="btn-user2" data-name="Usuário 2">
-        <span class="user-avatar">U</span>
-        <span class="user-label">Usuário 2</span>
-      </button>
-    </div>
+<!-- Tela de autenticação — conteúdo renderizado por auth.js -->
+<div id="auth-screen">
+  <!-- Estado de carregamento visível ANTES do JS — evita tela preta -->
+  <div class="auth-card" style="text-align:center;">
+    <div class="auth-logo" style="margin:0 auto 20px;">F</div>
+    <h1 class="auth-title">Finanças Família</h1>
+    <p class="auth-sub" style="margin-top:8px;">Carregando…</p>
   </div>
 </div>
 
-<!-- ===================== APP ===================== -->
+<!-- Aplicativo — oculto até autenticação -->
 <div id="app">
-
-  <!-- Sidebar (desktop) -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--color-accent),#8AA0FF);display:inline-block;"></div>
+      <div class="brand-mark"
+           style="width:28px;height:28px;border-radius:8px;
+                  background:linear-gradient(135deg,var(--color-accent),#8AA0FF);
+                  display:inline-block;flex-shrink:0;"></div>
       <span>Finanças Família</span>
     </div>
     <ul class="nav-list" id="nav-list"></ul>
     <div class="sidebar-footer">
       <div class="current-user-pill">
         <span class="user-avatar" id="user-avatar-letter"
-              style="width:20px;height:20px;font-size:10px;border-radius:50%;background:var(--color-accent-soft);color:var(--color-accent);display:flex;align-items:center;justify-content:center;">
-        </span>
+              style="width:22px;height:22px;font-size:11px;border-radius:50%;
+                     background:var(--color-accent-soft);color:var(--color-accent);
+                     display:flex;align-items:center;justify-content:center;
+                     font-weight:700;flex-shrink:0;"></span>
         <span id="current-user-name"></span>
       </div>
       <button class="theme-toggle" id="theme-toggle-btn">🌗 Alternar tema</button>
-      <button class="logout-btn"   id="logout-btn">↩ Trocar de usuário</button>
+      <button class="logout-btn" id="logout-btn">↩ Sair</button>
     </div>
   </aside>
 
-  <!-- Conteúdo principal -->
   <main class="main" id="main-content"></main>
-
-  <!-- FAB -->
-  <button class="fab" id="fab-add" title="Adicionar (atalho: D ou R)">+</button>
-
-  <!-- Bottom nav (mobile) -->
+  <button class="fab" id="fab-add" title="Adicionar (D = despesa, R = receita)">+</button>
   <nav class="bottom-nav" id="bottom-nav"></nav>
 </div>
 
-<!-- ===================== MODAIS / OVERLAYS ===================== -->
-<div class="modal-backdrop" id="modal-backdrop">
-  <div id="modal-root"></div>
-</div>
-
-<div class="more-menu-sheet" id="more-menu-sheet">
-  <div class="more-menu-card" id="more-menu-card"></div>
-</div>
-
+<div class="modal-backdrop" id="modal-backdrop"><div id="modal-root"></div></div>
+<div class="more-menu-sheet" id="more-menu-sheet"><div class="more-menu-card" id="more-menu-card"></div></div>
 <div class="toast-stack" id="toast-stack"></div>
 
-<!-- ===================== SCRIPTS ===================== -->
+<!-- ORDEM DOS SCRIPTS: config → utils → charts → api → auth → store → actions → modals → pages → app -->
 <script src="js/config.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/api.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/store.js"></script>
 <script src="js/actions.js"></script>
 <script src="js/modals.js"></script>
@@ -92,9 +78,7 @@
 <script src="js/app.js"></script>
 <script>
   if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
-    });
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(()=>{}));
   }
 </script>
 </body>
