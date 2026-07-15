@@ -209,7 +209,3 @@ const Auth = {
     el.textContent = msg;
     el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
   },
-};
-document.addEventListener("DOMContentLoaded", () => {
-    Auth.mount();
-});
