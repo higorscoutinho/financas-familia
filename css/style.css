@@ -340,3 +340,93 @@ p{margin:0;} button{font-family:inherit;} ::selection{background:var(--color-acc
 
 ::-webkit-scrollbar{width:8px;height:8px;}
 ::-webkit-scrollbar-thumb{background:var(--color-border);border-radius:8px;}
+/* ═══════════════════ MÓDULO DÍVIDAS ═══════════════════ */
+
+/* Card de alerta no dashboard */
+.debt-alert-card {
+  display: flex; align-items: center; gap: var(--space-4);
+  background: var(--color-negative-soft);
+  border: 1px solid var(--color-negative);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+.debt-alert-icon { font-size: 24px; flex-shrink: 0; }
+.debt-alert-body { flex: 1; min-width: 0; }
+.debt-alert-title { font-size: 15px; font-weight: 700; color: var(--color-negative); }
+.debt-alert-sub   { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
+
+/* Cards de dívida */
+.debt-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--t-med) var(--ease) backwards;
+}
+.debt-card.debt-em_atraso  { border-left-color: var(--color-negative); }
+.debt-card.debt-em_aberto  { border-left-color: var(--color-accent); }
+.debt-card.debt-negociada  { border-left-color: var(--color-warning); }
+.debt-card.debt-parcelada  { border-left-color: var(--color-warning); }
+.debt-card.debt-quitada    { border-left-color: var(--color-positive); opacity: 0.75; }
+
+.debt-card-header {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: var(--space-3);
+  margin-bottom: var(--space-4); flex-wrap: wrap;
+}
+.debt-card-name   { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.debt-card-credor { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
+
+.debt-card-values {
+  display: flex; gap: var(--space-5); flex-wrap: wrap; margin-bottom: var(--space-4);
+}
+.debt-val-label { font-size: 11px; font-weight: 600; color: var(--color-text-faint); text-transform: uppercase; letter-spacing: .04em; }
+.debt-val-big   { font-size: 22px; font-weight: 700; font-family: var(--font-display); letter-spacing: -.02em; margin-top: 2px; }
+.debt-val-big.neg { color: var(--color-negative); }
+.debt-val-big.pos { color: var(--color-positive); }
+
+.debt-progress-wrap { margin-bottom: var(--space-4); }
+
+/* Histórico de dívida */
+.debt-history {
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.hist-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--color-text-muted);
+}
+.hist-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--color-text-faint);
+}
+.hist-dot.hist-criada    { background: var(--color-accent); }
+.hist-dot.hist-atraso    { background: var(--color-negative); }
+.hist-dot.hist-pagamento { background: var(--color-positive); }
+.hist-dot.hist-negociacao{ background: var(--color-warning); }
+.hist-dot.hist-quitada   { background: var(--color-positive); }
+.hist-dot.hist-edicao    { background: var(--color-text-faint); }
+.hist-date  { font-weight: 700; color: var(--color-text); min-width: 36px; }
+.hist-desc  { flex: 1; }
+.hist-val   { font-weight: 700; color: var(--color-positive); white-space: nowrap; }
+
+.debt-card-actions {
+  display: flex; gap: var(--space-2); flex-wrap: wrap; padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 880px) {
+  .debt-card-header  { flex-direction: column; }
+  .debt-card-values  { gap: var(--space-4); }
+  .debt-card-actions { flex-direction: column; }
+  .debt-card-actions .btn { width: 100%; justify-content: center; }
+  .debt-alert-card   { flex-direction: column; text-align: center; }
+}
