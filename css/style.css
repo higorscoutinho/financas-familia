@@ -430,3 +430,93 @@ p{margin:0;} button{font-family:inherit;} ::selection{background:var(--color-acc
   .debt-card-actions .btn { width: 100%; justify-content: center; }
   .debt-alert-card   { flex-direction: column; text-align: center; }
 }
+/* ═══════════════════ ANOTAÇÕES / NOTAS ADESIVAS ═══════════════════ */
+
+.notas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.nota-card {
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 160px;
+  animation: rise var(--t-med) var(--ease) backwards;
+  position: relative;
+  /* Leve rotação aleatória via nth-child para parecer físico */
+}
+.nota-card:nth-child(odd)  { transform: rotate(-0.6deg); }
+.nota-card:nth-child(even) { transform: rotate(0.4deg);  }
+.nota-card:hover           { transform: rotate(0deg) scale(1.02); box-shadow: var(--shadow-lg); z-index: 2; transition: all var(--t-fast) var(--ease); }
+
+.nota-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.nota-titulo {
+  font-size: 14px;
+  font-weight: 800;
+  color: rgba(0,0,0,0.75);
+  word-break: break-word;
+  flex: 1;
+}
+.nota-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.nota-card:hover .nota-actions { opacity: 1; }
+
+.nota-btn {
+  background: rgba(0,0,0,0.1);
+  border: none;
+  border-radius: 6px;
+  width: 26px; height: 26px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.nota-btn:hover { background: rgba(0,0,0,0.2); }
+
+.nota-body {
+  font-size: 13.5px;
+  color: rgba(0,0,0,0.65);
+  line-height: 1.55;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nota-date {
+  font-size: 11px;
+  color: rgba(0,0,0,0.4);
+  text-align: right;
+  margin-top: auto;
+}
+
+[data-theme="dark"] .nota-titulo { color: rgba(0,0,0,0.85); }
+[data-theme="dark"] .nota-body   { color: rgba(0,0,0,0.65); }
+
+/* Paleta de cores das notas (usada no modal) */
+.cor-picker {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;
+}
+.cor-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; transition: transform var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.cor-btn:hover   { transform: scale(1.15); }
+.cor-btn.selected { border-color: var(--color-text); transform: scale(1.15); }
+
+@media (max-width: 880px) {
+  .notas-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .nota-actions { opacity: 1; }
+}
