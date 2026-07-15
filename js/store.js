@@ -1,12 +1,8 @@
 /* =========================================================
-   store.js — Estado da aplicação + sincronização Sheets
-   ALTERAÇÕES:
-   - ensureFixedBillsForMonth(mk): funciona para qualquer mês
-     (não só o atual) — contas fixas aparecem em todo mês
-   - getInstallmentForMonth(p, mk): calcula qual número de
-     parcela corresponde ao mês selecionado
-   - isParcelamentoPago / toggleParcelamentoPago: marca
-     parcela como paga num mês específico (localStorage)
+   store.js — Estado + sincronização com Google Sheets
+   ADICIONADO: dividas, pagamentosDividas, negociacoesDividas,
+   historicoDividas, checkOverdueBills, getPrioridade,
+   recalcularDivida, addHistoricoDivida
    ========================================================= */
 
 const DEFAULT_CATEGORIES = [
@@ -15,29 +11,30 @@ const DEFAULT_CATEGORIES = [
   "Viagem","Investimentos","Outros",
 ];
 
-const LS_KEY   = "ff_data_v1";
-const LS_QUEUE = "ff_queue_v1";
-const LS_USER  = "ff_user_v1";
-const LS_THEME = "ff_theme_v1";
-// Pagamentos de parcelas ficam só no localStorage (não precisam de aba nova na planilha)
+const LS_KEY        = "ff_data_v1";
+const LS_QUEUE      = "ff_queue_v1";
+const LS_USER       = "ff_user_v1";
+const LS_THEME      = "ff_theme_v1";
 const LS_PARC_PAGOS = "ff_parc_pagos_v1";
 
 const Store = {
   data: {
-    receitas:      [],
-    despesas:      [],
-    contasFixas:   [],
-    cartoes:       [],
-    parcelamentos: [],
-    categorias:    [...DEFAULT_CATEGORIES],
-    metas:         [],
-    configuracoes: { metaEconomiaMensal: 0 },
-    logs:          [],
+    receitas:           [],
+    despesas:           [],
+    contasFixas:        [],
+    cartoes:            [],
+    parcelamentos:      [],
+    categorias:         [...DEFAULT_CATEGORIES],
+    metas:              [],
+    configuracoes:      { metaEconomiaMensal: 0, diasToleranciaAtraso: 1 },
+    logs:               [],
+    dividas:            [],
+    pagamentosDividas:  [],
+    negociacoesDividas: [],
+    historicoDividas:   [],
   },
 
-  // Pagamentos de parcelamentos: chave = "parcId_2026-06" → { pago, data }
   parcelamentosPagos: {},
-
   queue:   [],
   syncing: false,
 
@@ -50,7 +47,7 @@ const Store = {
       if (q) this.queue = JSON.parse(q);
       const pp = localStorage.getItem(LS_PARC_PAGOS);
       if (pp) this.parcelamentosPagos = JSON.parse(pp);
-    } catch (e) { console.warn("Cache corrompido", e); }
+    } catch(e) { console.warn("Cache corrompido", e); }
   },
 
   saveLocal() {
@@ -66,15 +63,19 @@ const Store = {
       const remote = await API.getAll();
       if (remote) {
         this.data = {
-          receitas:      remote.receitas      || [],
-          despesas:      remote.despesas      || [],
-          contasFixas:   remote.contasFixas   || [],
-          cartoes:       remote.cartoes       || [],
-          parcelamentos: remote.parcelamentos || [],
-          categorias:    remote.categorias?.length ? remote.categorias : [...DEFAULT_CATEGORIES],
-          metas:         remote.metas         || [],
-          configuracoes: remote.configuracoes || { metaEconomiaMensal: 0 },
-          logs:          remote.logs          || [],
+          receitas:           remote.receitas           || [],
+          despesas:           remote.despesas           || [],
+          contasFixas:        remote.contasFixas        || [],
+          cartoes:            remote.cartoes            || [],
+          parcelamentos:      remote.parcelamentos      || [],
+          categorias:         remote.categorias?.length ? remote.categorias : [...DEFAULT_CATEGORIES],
+          metas:              remote.metas              || [],
+          configuracoes:      remote.configuracoes      || { metaEconomiaMensal: 0, diasToleranciaAtraso: 1 },
+          logs:               remote.logs               || [],
+          dividas:            remote.dividas            || [],
+          pagamentosDividas:  remote.pagamentosDividas  || [],
+          negociacoesDividas: remote.negociacoesDividas || [],
+          historicoDividas:   remote.historicoDividas   || [],
         };
         this.saveLocal();
         Utils.toast("Sincronizado com Google Sheets ✓");
@@ -84,89 +85,183 @@ const Store = {
       this.flushQueue();
     }
     this.ensureFixedBillsForMonth(Utils.currentMonthKey());
+    this.checkOverdueBills();
   },
 
-  // ── Contas fixas: garante existência para QUALQUER mês ─
+  // ── Contas fixas: garante existência para qualquer mês ─
   ensureFixedBillsForMonth(mk) {
-    // "Templates" = o registro mais recente de cada nome único
     const templates = new Map();
     this.data.contasFixas.forEach((c) => {
       const prev = templates.get(c.nome);
-      if (!prev || (c.mesReferencia || "") > (prev.mesReferencia || "")) {
-        templates.set(c.nome, c);
-      }
+      if (!prev || (c.mesReferencia || "") > (prev.mesReferencia || "")) templates.set(c.nome, c);
     });
-
     const existingNames = new Set(
       this.data.contasFixas.filter((c) => c.mesReferencia === mk).map((c) => c.nome)
     );
-
     let criou = false;
     templates.forEach((tpl) => {
       if (!existingNames.has(tpl.nome)) {
-        const novo = {
-          ...tpl,
-          id:            Utils.uid("fix"),
-          mesReferencia: mk,
-          pago:          false,
-          dataPagamento: "",
-          horaPagamento: "",
-        };
+        const novo = { ...tpl, id: Utils.uid("fix"), mesReferencia: mk, pago: false, dataPagamento: "", horaPagamento: "" };
         this.data.contasFixas.push(novo);
         this.queueChange("ContasFixas", "create", novo);
         criou = true;
       }
     });
+    if (criou) this.saveLocal();
+  },
+
+  // ── DÍVIDAS: conversão automática de contas vencidas ──
+  checkOverdueBills() {
+    const today      = new Date(); today.setHours(0,0,0,0);
+    const tolerancia = Number(this.data.configuracoes.diasToleranciaAtraso) || 1;
+    let criou = false;
+
+    this.data.contasFixas.forEach((conta) => {
+      if (conta.pago) return;
+      if (!conta.mesReferencia || !conta.diaVencimento) return;
+
+      const [y, m] = conta.mesReferencia.split("-").map(Number);
+      const dueDate = new Date(y, m - 1, Number(conta.diaVencimento));
+      dueDate.setHours(0,0,0,0);
+      const diffDays = Math.floor((today - dueDate) / 86400000);
+      if (diffDays < tolerancia) return;
+
+      const jaExiste = this.data.dividas.some((d) => d.contaFixaId === conta.id);
+      if (jaExiste) return;
+
+      const todayStr  = Utils.todayISO();
+      const dataVenc  = `${y}-${String(m).padStart(2,"0")}-${String(conta.diaVencimento).padStart(2,"0")}`;
+      const divida = {
+        id:            Utils.uid("div"),
+        nome:          conta.nome,
+        categoria:     conta.categoria || "Outros",
+        credor:        "",
+        valorOriginal: Number(conta.valor) || 0,
+        valorAtual:    Number(conta.valor) || 0,
+        valorPago:     0,
+        valorRestante: Number(conta.valor) || 0,
+        dataVencimento: dataVenc,
+        estaEmAtraso:  true,
+        temJuros:      false,
+        taxaJuros:     0,
+        prioridade:    this.getPrioridade(conta.categoria),
+        status:        "em_atraso",
+        origem:        "conta",
+        contaFixaId:   conta.id,
+        mesReferencia: conta.mesReferencia,
+        obs:           `Gerada automaticamente — "${conta.nome}" venceu há ${diffDays} dia(s)`,
+        criadoEm:      todayStr,
+        criadoPor:     "Sistema",
+      };
+      this.data.dividas.push(divida);
+      this.addHistoricoDivida(divida.id, "criada",  `Criada automaticamente — conta vencida há ${diffDays} dia(s)`, 0);
+      this.addHistoricoDivida(divida.id, "atraso",  `Entrou em atraso`, 0);
+      this.queueChange("Dividas", "create", divida);
+      criou = true;
+    });
 
     if (criou) this.saveLocal();
   },
 
-  // ── Parcelamentos: número da parcela para um mês ───────
-  /**
-   * Calcula qual número de parcela corresponde ao mês `mk`.
-   * Exemplo: parcelamento de 12x com dataFinal = 2026-12
-   *   → dataInicio = 2026-01
-   *   → para mk = 2026-06 → parcela 6
-   *   → para mk = 2025-12 → parcela 0 (inativo)
-   */
+  // ── Prioridade automática ─────────────────────────────
+  getPrioridade(categoria) {
+    const cat = (categoria || "").toLowerCase();
+    const alta  = ["moradia","aluguel","financiamento","faculdade","educação","educacao","condomínio","condominio","prestação","prestacao"];
+    const media = ["cartão","cartao","empréstimo","emprestimo","assinatura","streaming"];
+    if (alta.some((a)  => cat.includes(a))) return "alta";
+    if (media.some((m) => cat.includes(m))) return "media";
+    return "baixa";
+  },
+
+  // ── Histórico de dívidas ──────────────────────────────
+  addHistoricoDivida(dividaId, tipo, descricao, valor) {
+    const entry = {
+      id:        Utils.uid("hist"),
+      dividaId,
+      tipo,
+      data:      Utils.todayISO(),
+      descricao: descricao || "",
+      valor:     valor || 0,
+    };
+    this.data.historicoDividas.push(entry);
+    this.queueChange("HistoricoDividas", "create", entry);
+  },
+
+  // ── Recalcula totais de uma dívida após pagamentos ────
+  recalcularDivida(id) {
+    const divida = this.data.dividas.find((d) => d.id === id);
+    if (!divida) return;
+    const pagamentos = this.data.pagamentosDividas.filter((p) => p.dividaId === id);
+    const totalPago  = pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const restante   = Math.max(0, Number(divida.valorAtual) - totalPago);
+    const status     = restante <= 0 ? "quitada" : divida.status === "quitada" ? "em_aberto" : divida.status;
+    this.update("dividas", "Dividas", id, {
+      valorPago:     totalPago,
+      valorRestante: restante,
+      status,
+    });
+    if (restante <= 0 && divida.status !== "quitada") {
+      this.addHistoricoDivida(id, "quitada", "Dívida quitada — pagamento total atingido", totalPago);
+      // Fecha a conta fixa vinculada se existir
+      if (divida.contaFixaId) {
+        const conta = this.data.contasFixas.find((c) => c.id === divida.contaFixaId);
+        if (conta && !conta.pago) {
+          this.update("contasFixas", "ContasFixas", conta.id, {
+            pago: true, dataPagamento: Utils.todayISO(), horaPagamento: new Date().toLocaleTimeString("pt-BR"),
+          });
+        }
+      }
+    }
+  },
+
+  // ── Estatísticas de dívidas ───────────────────────────
+  dividaStats() {
+    const ativas   = this.data.dividas.filter((d) => d.status !== "quitada");
+    const atraso   = ativas.filter((d) => d.status === "em_atraso");
+    const negoc    = ativas.filter((d) => d.status === "negociada" || d.status === "parcelada");
+    const quitadas = this.data.dividas.filter((d) => d.status === "quitada");
+    const totalAberto  = ativas.reduce((s,d) => s + Number(d.valorRestante||0), 0);
+    const totalAtraso  = atraso.reduce((s,d) => s + Number(d.valorRestante||0), 0);
+    const totalNegoc   = negoc.reduce((s,d) => s + Number(d.valorRestante||0), 0);
+    const totalQuitado = quitadas.reduce((s,d) => s + Number(d.valorOriginal||0), 0);
+    const maior        = ativas.sort((a,b) => Number(b.valorRestante||0) - Number(a.valorRestante||0))[0] || null;
+    return { ativas, atraso, negoc, quitadas, totalAberto, totalAtraso, totalNegoc, totalQuitado, maior };
+  },
+
+  // ── Dias em atraso de uma dívida ──────────────────────
+  diasAtraso(divida) {
+    if (!divida.dataVencimento) return 0;
+    const due   = new Date(divida.dataVencimento); due.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0,0,0,0);
+    return Math.max(0, Math.floor((today - due) / 86400000));
+  },
+
+  // ── Parcelamentos: número da parcela para um mês ──────
   getInstallmentForMonth(p, mk) {
     const total    = Number(p.qtdTotal) || 1;
-    const dataFinal = (p.dataFinal || "").slice(0, 7); // "2026-12"
+    const dataFinal = (p.dataFinal || "").slice(0,7);
     if (!dataFinal) return Number(p.parcelaAtual) || 1;
-
-    const [ey, em] = dataFinal.split("-").map(Number);
-    // Mês de início = dataFinal − (total-1) meses
+    const [ey, em]  = dataFinal.split("-").map(Number);
     const startDate = new Date(ey, em - 1 - (total - 1), 1);
-    const sy = startDate.getFullYear();
-    const sm = startDate.getMonth() + 1;
-
-    const [my, mm] = mk.split("-").map(Number);
-    const diff = (my - sy) * 12 + (mm - sm); // meses desde o início
-    return Math.max(1, Math.min(total, diff + 1));
+    const sy = startDate.getFullYear(), sm = startDate.getMonth() + 1;
+    const [my, mm]  = mk.split("-").map(Number);
+    return Math.max(1, Math.min(total, (my - sy) * 12 + (mm - sm) + 1));
   },
 
-  // ── Pagamento de parcelas ──────────────────────────────
   parcPagoKey(id, mk) { return `${id}_${mk}`; },
-
-  isParcelamentoPago(id, mk) {
-    return !!this.parcelamentosPagos[this.parcPagoKey(id, mk)]?.pago;
-  },
-
+  isParcelamentoPago(id, mk) { return !!this.parcelamentosPagos[this.parcPagoKey(id, mk)]?.pago; },
   toggleParcelamentoPago(id, mk) {
     const key  = this.parcPagoKey(id, mk);
     const pago = !this.parcelamentosPagos[key]?.pago;
-    if (pago) {
-      this.parcelamentosPagos[key] = { pago: true, data: Utils.todayISO() };
-    } else {
-      delete this.parcelamentosPagos[key];
-    }
+    if (pago) this.parcelamentosPagos[key] = { pago: true, data: Utils.todayISO() };
+    else delete this.parcelamentosPagos[key];
     this.saveLocal();
     return pago;
   },
 
   // ── Fila de sincronização ─────────────────────────────
   queueChange(sheet, op, data) {
-    const user = typeof App !== "undefined" ? App.currentUser : "?";
+    const user = typeof App !== "undefined" ? App.currentUser : "Sistema";
     this.queue.push({ sheet, op, data, user, ts: Date.now() });
     this.saveLocal();
     this.flushQueue();
@@ -187,8 +282,8 @@ const Store = {
 
   // ── CRUD genérico ─────────────────────────────────────
   add(col, sheet, record) {
-    record.id        = record.id || Utils.uid(col.slice(0, 3));
-    record.criadoPor = typeof App !== "undefined" ? App.currentUser : "?";
+    record.id        = record.id || Utils.uid(col.slice(0,3));
+    record.criadoPor = typeof App !== "undefined" ? App.currentUser : "Sistema";
     this.data[col].push(record);
     this.saveLocal();
     this.queueChange(sheet, "create", record);
@@ -214,40 +309,29 @@ const Store = {
 
   logChange(sheet, id, before, after) {
     this.data.logs.unshift({
-      id:         Utils.uid("log"),
-      usuario:    typeof App !== "undefined" ? App.currentUser : "?",
-      data:       Utils.todayISO(),
-      hora:       new Date().toLocaleTimeString("pt-BR"),
-      aba:        sheet,
-      registroId: id,
-      valorAntigo: before.valor ?? before.pago ?? "",
-      valorNovo:   after.valor  ?? after.pago  ?? "",
+      id: Utils.uid("log"), usuario: typeof App !== "undefined" ? App.currentUser : "?",
+      data: Utils.todayISO(), hora: new Date().toLocaleTimeString("pt-BR"),
+      aba: sheet, registroId: id,
+      valorAntigo: before.valor ?? before.pago ?? before.status ?? "",
+      valorNovo:   after.valor  ?? after.pago  ?? after.status  ?? "",
     });
-    this.data.logs = this.data.logs.slice(0, 300);
+    this.data.logs = this.data.logs.slice(0,300);
   },
 
   // ── Consultas por mês ─────────────────────────────────
   monthDespesas(mk)   { return this.data.despesas.filter((d) => Utils.monthKey(d.data) === mk); },
   monthReceitas(mk)   { return this.data.receitas.filter((r) => Utils.monthKey(r.data) === mk); },
   monthFixedBills(mk) { return this.data.contasFixas.filter((c) => c.mesReferencia === mk); },
-
-  /**
-   * Parcelamentos ativos no mês mk.
-   * Calcula startMk e endMk com base em dataFinal e qtdTotal.
-   */
   monthParcelamentos(mk) {
     return this.data.parcelamentos.filter((p) => {
-      const total     = Number(p.qtdTotal) || 1;
-      const dataFinal = (p.dataFinal || "").slice(0, 7);
+      const total = Number(p.qtdTotal) || 1;
+      const dataFinal = (p.dataFinal || "").slice(0,7);
       if (!dataFinal) return true;
-
       const [ey, em] = dataFinal.split("-").map(Number);
       const startDate = new Date(ey, em - 1 - (total - 1), 1);
-      const startMk   = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}`;
-
+      const startMk = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,"0")}`;
       return mk >= startMk && mk <= dataFinal;
     });
   },
-
-  sum(list) { return list.reduce((s, x) => s + (Number(x.valor) || 0), 0); },
+  sum(list) { return list.reduce((s,x) => s + (Number(x.valor) || 0), 0); },
 };
