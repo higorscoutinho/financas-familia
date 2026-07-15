@@ -1,22 +1,23 @@
 /* =========================================================
    app.js — Navegação + seletor de mês global
-   ADICIONADO: Dívidas no menu (posição 2)
+   MUDANÇA: Anotações adicionada ao menu
    ========================================================= */
 
 const NAV_ITEMS = [
-  { id: "dashboard",     label: "Dashboard",      icon: "🏠" },
-  { id: "dividas",       label: "Dívidas",        icon: "🔴" },
-  { id: "fixas",         label: "Contas Fixas",   icon: "📌" },
-  { id: "parcelamentos", label: "Parcelamentos",  icon: "📦" },
-  { id: "despesas",      label: "Despesas",       icon: "💸" },
-  { id: "receitas",      label: "Receitas",       icon: "💰" },
-  { id: "metas",         label: "Metas",          icon: "🎯" },
-  { id: "relatorios",    label: "Relatórios",     icon: "📊" },
-  { id: "cartoes",       label: "Cartões",        icon: "💳" },
-  { id: "config",        label: "Configurações",  icon: "⚙️" },
+  { id: "dashboard",     label: "Dashboard",     icon: "🏠" },
+  { id: "dividas",       label: "Dívidas",       icon: "🔴" },
+  { id: "fixas",         label: "Contas Fixas",  icon: "📌" },
+  { id: "parcelamentos", label: "Parcelamentos", icon: "📦" },
+  { id: "despesas",      label: "Despesas",      icon: "💸" },
+  { id: "receitas",      label: "Receitas",      icon: "💰" },
+  { id: "metas",         label: "Metas",         icon: "🎯" },
+  { id: "relatorios",    label: "Relatórios",    icon: "📊" },
+  { id: "cartoes",       label: "Cartões",       icon: "💳" },
+  { id: "anotacoes",     label: "Anotações",     icon: "📝" },
+  { id: "config",        label: "Configurações", icon: "⚙️" },
 ];
 
-const BOTTOM_NAV_IDS = ["dashboard", "dividas", "despesas", "fixas"];
+const BOTTOM_NAV_IDS = ["dashboard", "dividas", "despesas", "anotacoes"];
 
 const App = {
   currentUser:   null,
@@ -74,13 +75,13 @@ const App = {
   },
 
   prevMonth() {
-    const [y,m] = this.selectedMonth.split("-").map(Number);
-    const d = new Date(y, m-2, 1);
+    const [y, m] = this.selectedMonth.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
     this.setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   },
 
   nextMonth() {
-    const [y,m] = this.selectedMonth.split("-").map(Number);
+    const [y, m] = this.selectedMonth.split("-").map(Number);
     const d = new Date(y, m, 1);
     this.setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   },
@@ -97,12 +98,12 @@ const App = {
     const bottomNav = document.getElementById("bottom-nav");
     bottomNav.innerHTML =
       BOTTOM_NAV_IDS.map((id) => {
-        const it = NAV_ITEMS.find((n) => n.id===id);
+        const it = NAV_ITEMS.find((n) => n.id === id);
         return `<button class="bn-item" data-page="${id}"><span class="ic">${it.icon}</span>${it.label}</button>`;
       }).join("") +
       `<button class="bn-item bn-more" data-page="more"><span class="ic">⋯</span>Mais</button>`;
     bottomNav.querySelectorAll(".bn-item").forEach((el) => {
-      el.onclick = () => el.dataset.page==="more" ? this.openMoreMenu() : this.goTo(el.dataset.page);
+      el.onclick = () => el.dataset.page === "more" ? this.openMoreMenu() : this.goTo(el.dataset.page);
     });
 
     const moreCard = document.getElementById("more-menu-card");
@@ -120,29 +121,29 @@ const App = {
 
   goTo(page) {
     this.currentPage = page;
-    document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.page===page));
-    document.querySelectorAll(".bn-item").forEach((el) => el.classList.toggle("active", el.dataset.page===page));
+    document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.page === page));
+    document.querySelectorAll(".bn-item").forEach((el) => el.classList.toggle("active", el.dataset.page === page));
     Pages.render(page);
   },
 
   bindGlobalEvents() {
     document.getElementById("theme-toggle-btn").onclick = () => {
-      const next = document.documentElement.getAttribute("data-theme")==="dark" ? "light" : "dark";
+      const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", next);
       localStorage.setItem(LS_THEME, next);
     };
-    document.getElementById("logout-btn").onclick  = () => this.logout();
-    document.getElementById("fab-add").onclick     = () => Modals.openQuickAdd();
+    document.getElementById("logout-btn").onclick      = () => this.logout();
+    document.getElementById("fab-add").onclick         = () => Modals.openQuickAdd();
     document.getElementById("more-menu-sheet").onclick = (e) => {
-      if (e.target.id==="more-menu-sheet") this.closeMoreMenu();
+      if (e.target.id === "more-menu-sheet") this.closeMoreMenu();
     };
     document.addEventListener("keydown", (e) => {
       if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) return;
-      if (e.key.toLowerCase()==="d") Modals.openDespesa();
-      if (e.key.toLowerCase()==="r") Modals.openReceita();
-      if (e.key==="ArrowLeft")  this.prevMonth();
-      if (e.key==="ArrowRight") this.nextMonth();
-      if (e.key==="Escape")     Modals.closeAll();
+      if (e.key.toLowerCase() === "d") Modals.openDespesa();
+      if (e.key.toLowerCase() === "r") Modals.openReceita();
+      if (e.key === "ArrowLeft")  this.prevMonth();
+      if (e.key === "ArrowRight") this.nextMonth();
+      if (e.key === "Escape")     Modals.closeAll();
     });
   },
 };
