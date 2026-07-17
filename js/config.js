@@ -25,11 +25,11 @@ window.APP_CONFIG = {
   USERS: [
     {
       name: "Higor",
-      hash: "", // ← Cole aqui o hash gerado para Higor
+      hash: "cd9b9e80a5b78a3d4c6778e6f7851a28bd15f744a6de0495888baafdb74afb58", // ← Cole aqui o hash gerado para Higor
     },
     {
       name: "Bia",
-      hash: "", // ← Cole aqui o hash gerado para Bia
+      hash: "d6a4031733610bb080d0bfa794fcc9dbdcff74834aeaab7c6b927e21e9754037", // ← Cole aqui o hash gerado para Bia
     },
   ],
 
