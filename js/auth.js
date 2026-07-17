@@ -1,20 +1,20 @@
 /* =========================================================
-   auth.js — Autenticação SHA-256 + sessionStorage
-   - Sessão sempre destruída ao recarregar/fechar
-   - Primeiro acesso: tela de cadastro de códigos
-   - Demais acessos: tela de login
-   - App.boot(userName) é chamado após login válido
+   auth.js — Autenticação com senhas fixas no config.js
+   
+   SEGURANÇA:
+   - As senhas ficam como hashes SHA-256 no config.js
+   - Ninguém consegue criar senha nova — só quem edita
+     o config.js no GitHub/hospedeiro pode alterar
+   - Sessão destruída ao fechar/recarregar (sessionStorage)
+   - Sem "lembrar-me", sem login automático
    ========================================================= */
 
 const Auth = {
-  LS_HASHES:  "ff_auth_v2",
   SS_SESSION: "ff_session_v1",
 
+  // Usuários e hashes vêm direto do config.js
   get users() {
-    return [
-      { name: window.APP_CONFIG?.USER_1 || "Usuário 1" },
-      { name: window.APP_CONFIG?.USER_2 || "Usuário 2" },
-    ];
+    return window.APP_CONFIG?.USERS || [];
   },
 
   async sha256(text) {
@@ -22,56 +22,69 @@ const Auth = {
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
   },
 
+  // Ferramenta para gerar hash — use no console: Auth.gerarHash("sua-senha")
   async gerarHash(codigo) {
-    const h = await this.sha256(codigo);
-    console.log(`%cHash de "${codigo}":`, "font-weight:bold;color:#3D5AFE"); console.log(h);
+    const h = await this.sha256(String(codigo));
+    console.log(`%c╔══════════════════════════╗`, "color:#3D5AFE;font-weight:bold");
+    console.log(`%c  Hash de "${codigo}":`, "color:#3D5AFE;font-weight:bold");
+    console.log(`%c  ${h}`, "color:#1FA971;font-weight:bold;font-size:11px");
+    console.log(`%c╚══════════════════════════╝`, "color:#3D5AFE;font-weight:bold");
+    console.log(`%cCole esse valor em config.js → USERS → hash`, "color:#6B6E76");
     return h;
   },
 
-  getHashes() {
-    try { return JSON.parse(localStorage.getItem(this.LS_HASHES) || "{}"); } catch { return {}; }
-  },
-
-  async setHash(name, code) {
-    const h = await this.sha256(code);
-    const hashes = this.getHashes();
-    hashes[name] = h;
-    localStorage.setItem(this.LS_HASHES, JSON.stringify(hashes));
-  },
-
-  isConfigured() {
-    const h = this.getHashes();
-    return this.users.every(u => !!h[u.name]);
-  },
-
   async validate(name, code) {
-    const stored = this.getHashes()[name];
-    if (!stored) return false;
-    return (await this.sha256(code)) === stored;
+    const user = this.users.find(u => u.name === name);
+    if (!user?.hash) return false;
+    return (await this.sha256(String(code))) === user.hash;
   },
 
   startSession(name) {
-    sessionStorage.setItem(this.SS_SESSION, JSON.stringify({
-      user: name, token: Math.random().toString(36).slice(2)+Date.now().toString(36), at: Date.now()
-    }));
+    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem(this.SS_SESSION, JSON.stringify({ user: name, token, at: Date.now() }));
   },
 
   getSession() {
     try { return JSON.parse(sessionStorage.getItem(this.SS_SESSION) || "null"); } catch { return null; }
   },
 
-  logout() { sessionStorage.removeItem(this.SS_SESSION); location.reload(); },
+  logout() {
+    sessionStorage.removeItem(this.SS_SESSION);
+    location.reload();
+  },
 
-  // ── Ponto de entrada ──────────────────────────────────
+  // ── Ponto de entrada — chamado quando o DOM carrega ───
   mount() {
-    // Sessão destruída ao recarregar/fechar
-    window.addEventListener("beforeunload", () => sessionStorage.removeItem(this.SS_SESSION));
+    // Garante que a sessão morre ao fechar ou recarregar
+    window.addEventListener("beforeunload", () => {
+      sessionStorage.removeItem(this.SS_SESSION);
+    });
 
-    // Verifica se já tem sessão válida nesta aba (raro mas possível em SPAs)
+    // Se já tem sessão válida nesta aba (navegação interna)
     const session = this.getSession();
-    if (session?.user) { this._launch(session.user); return; }
+    if (session?.user) {
+      this._launch(session.user);
+      return;
+    }
 
-    this.isConfigured() ? this._renderLogin() : this._renderSetup();
+    // Valida configuração
+    if (!this.users.length) {
+      this._renderError("Configuração incompleta: nenhum usuário definido em config.js");
+      return;
+    }
+
+    const semHash = this.users.filter(u => !u.hash);
+    if (semHash.length) {
+      this._renderError(
+        `Configure as senhas em config.js.<br><br>` +
+        `Usuários sem hash: <strong>${semHash.map(u=>u.name).join(", ")}</strong><br><br>` +
+        `Abra o console (F12) e rode:<br>` +
+        `<code>Auth.gerarHash("sua-senha")</code>`
+      );
+      return;
+    }
+
+    this._renderLogin();
   },
 
   _launch(name) {
@@ -81,8 +94,8 @@ const Auth = {
 
   // ── Tela de login ─────────────────────────────────────
   _renderLogin() {
-    const el = document.getElementById("auth-screen");
-    let sel  = this.users[0].name;
+    const el  = document.getElementById("auth-screen");
+    let sel   = this.users[0].name;
 
     el.innerHTML = `
       <div class="auth-card">
@@ -93,8 +106,10 @@ const Auth = {
         </div>
 
         <div class="auth-user-pick" id="au-pick">
-          ${this.users.map(u=>`
-            <button type="button" class="auth-user-btn ${u.name===sel?"active":""}" data-u="${u.name}">
+          ${this.users.map(u => `
+            <button type="button"
+              class="auth-user-btn ${u.name === sel ? "active" : ""}"
+              data-u="${u.name}">
               <span class="auth-avatar">${u.name[0].toUpperCase()}</span>
               <span>${u.name}</span>
             </button>`).join("")}
@@ -103,15 +118,18 @@ const Auth = {
         <div class="auth-form">
           <div class="field">
             <label>Código de acesso</label>
-            <input type="password" id="au-code" placeholder="••••••••" autocomplete="current-password" autofocus>
+            <input type="password" id="au-code"
+              placeholder="••••••••"
+              autocomplete="current-password" autofocus>
           </div>
           <div class="auth-error" id="au-err"></div>
-          <button type="button" class="btn btn-primary auth-submit-btn" id="au-btn">Entrar</button>
+          <button type="button" class="btn btn-primary auth-submit-btn" id="au-btn">
+            Entrar
+          </button>
         </div>
-
-        <button class="auth-reset-link" id="au-reset">Redefinir códigos neste dispositivo</button>
       </div>`;
 
+    // Selecionar usuário
     el.querySelectorAll(".auth-user-btn").forEach(btn => {
       btn.onclick = () => {
         sel = btn.dataset.u;
@@ -123,18 +141,12 @@ const Auth = {
       };
     });
 
-    document.getElementById("au-reset").onclick = () => {
-      if (confirm("Isso apagará os códigos salvos neste dispositivo. Continuar?")) {
-        localStorage.removeItem(this.LS_HASHES);
-        this._renderSetup();
-      }
-    };
-
+    // Fazer login
     const doLogin = async () => {
-      const code = document.getElementById("au-code").value;
+      const code  = document.getElementById("au-code").value;
       const errEl = document.getElementById("au-err");
       const btn   = document.getElementById("au-btn");
-      if (!code) { this._err(errEl,"Digite seu código."); return; }
+      if (!code) { this._err(errEl, "Digite seu código de acesso."); return; }
       btn.disabled = true; btn.textContent = "Verificando…";
       const ok = await this.validate(sel, code);
       if (ok) {
@@ -150,62 +162,34 @@ const Auth = {
     };
 
     document.getElementById("au-btn").onclick = doLogin;
-    document.getElementById("au-code").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+    document.getElementById("au-code").addEventListener("keydown", e => {
+      if (e.key === "Enter") doLogin();
+    });
   },
 
-  // ── Primeiro acesso / redefinição ─────────────────────
-  _renderSetup() {
-    const el = document.getElementById("auth-screen");
-
-    el.innerHTML = `
-      <div class="auth-card auth-card-wide">
+  // ── Tela de erro de configuração ──────────────────────
+  _renderError(msg) {
+    document.getElementById("auth-screen").innerHTML = `
+      <div class="auth-card" style="max-width:480px;">
         <div class="auth-brand">
-          <div class="auth-logo">F</div>
-          <h1 class="auth-title">Criar códigos de acesso</h1>
-          <p class="auth-sub">Defina um código para cada usuário.<br>Mínimo 4 caracteres.</p>
+          <div class="auth-logo" style="background:linear-gradient(135deg,#E5484D,#FF6A6F);">⚙️</div>
+          <h1 class="auth-title">Configuração necessária</h1>
         </div>
-
-        ${this.users.map(u=>`
-          <div class="auth-setup-block">
-            <div class="auth-setup-name">
-              <span class="auth-avatar">${u.name[0].toUpperCase()}</span>
-              <strong>${u.name}</strong>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label>Código</label>
-                <input type="password" id="sc-${u.name}" placeholder="Crie um código" autocomplete="new-password">
-              </div>
-              <div class="field">
-                <label>Confirmar</label>
-                <input type="password" id="scc-${u.name}" placeholder="Repita o código" autocomplete="new-password">
-              </div>
-            </div>
-          </div>`).join("")}
-
-        <div class="auth-error" id="sc-err"></div>
-        <button type="button" class="btn btn-primary auth-submit-btn" id="sc-btn">Salvar e entrar</button>
-        <p class="auth-security-note">🔒 Códigos armazenados com SHA-256 neste dispositivo. Nada é enviado à internet.</p>
+        <div style="background:var(--color-negative-soft);border:1px solid var(--color-negative);
+          border-radius:var(--radius-sm);padding:16px;font-size:13.5px;line-height:1.7;
+          color:var(--color-text);">${msg}</div>
+        <p class="auth-security-note">
+          Depois de gerar o hash, cole em <code>js/config.js</code> e reenvie o arquivo para o hospedeiro.
+        </p>
       </div>`;
-
-    document.getElementById("sc-btn").onclick = async () => {
-      const errEl = document.getElementById("sc-err");
-      const btn   = document.getElementById("sc-btn");
-      for (const u of this.users) {
-        const code = document.getElementById(`sc-${u.name}`)?.value || "";
-        const conf = document.getElementById(`scc-${u.name}`)?.value || "";
-        if (!code)          { this._err(errEl,`Digite o código de ${u.name}.`); return; }
-        if (code.length < 4){ this._err(errEl,`Código de ${u.name}: mínimo 4 caracteres.`); return; }
-        if (code !== conf)  { this._err(errEl,`Os códigos de ${u.name} não coincidem.`); return; }
-      }
-      btn.disabled = true; btn.textContent = "Salvando…";
-      for (const u of this.users) await this.setHash(u.name, document.getElementById(`sc-${u.name}`).value);
-      btn.textContent = "✓ Códigos salvos!";
-      setTimeout(() => this._renderLogin(), 600);
-    };
   },
 
   _err(el, msg) {
     el.textContent = msg;
     el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
   },
+};
+
+// ── DISPARA O AUTH QUANDO O DOM ESTIVER PRONTO ────────────
+// Esta linha é o que estava faltando e causava a tela de "Carregando..."
+document.addEventListener("DOMContentLoaded", () => Auth.mount());
