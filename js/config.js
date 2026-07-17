@@ -17,7 +17,7 @@
    ========================================================= */
 
 window.APP_CONFIG = {
-  API_URL: "", // Cole aqui a URL do seu Web App do Google Apps Script
+  API_URL: "https://script.google.com/macros/s/AKfycbwld4IYwcLM_G8GEt9j_f5dR-AtRRqQ1HblkVrgLMgc2oOlfTqzLENyQo1ID3gDKt9B/exec", // Cole aqui a URL do seu Web App do Google Apps Script
 
   // ── Usuários do sistema ───────────────────────────────
   // Preencha o campo "hash" com o SHA-256 da senha de cada usuário.
