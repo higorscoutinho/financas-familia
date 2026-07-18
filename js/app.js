@@ -1,32 +1,22 @@
-/* =========================================================
-   app.js — Núcleo da aplicação
-   - Sem login próprio: Auth.js chama App.boot(userName)
-   - Sem Cartões, sem Relatórios
-   - Metas → Investimentos
-   - Contas fixas: 100% manuais (sem auto-repetição)
-   ========================================================= */
-
 const NAV_ITEMS = [
-  { id: "dashboard",     label: "Dashboard",      icon: "🏠" },
-  { id: "dividas",       label: "Dívidas",        icon: "🔴" },
-  { id: "fixas",         label: "Contas Fixas",   icon: "📌" },
-  { id: "parcelamentos", label: "Parcelamentos",  icon: "📦" },
-  { id: "despesas",      label: "Despesas",       icon: "💸" },
-  { id: "receitas",      label: "Receitas",       icon: "💰" },
-  { id: "investimentos", label: "Investimentos",  icon: "📈" },
-  { id: "anotacoes",     label: "Anotações",      icon: "📝" },
-  { id: "config",        label: "Configurações",  icon: "⚙️" },
+  { id:"dashboard",     label:"Dashboard",     icon:"🏠" },
+  { id:"dividas",       label:"Dívidas",       icon:"🔴" },
+  { id:"fixas",         label:"Contas Fixas",  icon:"📌" },
+  { id:"parcelamentos", label:"Parcelamentos", icon:"📦" },
+  { id:"despesas",      label:"Despesas",      icon:"💸" },
+  { id:"receitas",      label:"Receitas",      icon:"💰" },
+  { id:"investimentos", label:"Investimentos", icon:"📈" },
+  { id:"anotacoes",     label:"Anotações",     icon:"📝" },
+  { id:"config",        label:"Configurações", icon:"⚙️" },
 ];
-
-const BOTTOM_NAV_IDS = ["dashboard", "dividas", "despesas", "anotacoes"];
+const BOTTOM_NAV_IDS = ["dashboard","dividas","despesas","anotacoes"];
 
 const App = {
   currentUser:   null,
   currentPage:   "dashboard",
   selectedMonth: Utils.currentMonthKey(),
-  filters:       { categoria: "todas", busca: "" },
+  filters:       { categoria:"todas", busca:"" },
 
-  // ── Chamado por auth.js após login validado ───────────
   async boot(userName) {
     this.currentUser = userName;
     document.getElementById("app").classList.add("active");
@@ -38,12 +28,12 @@ const App = {
     this.bindGlobalEvents();
   },
 
-  // ── Seletor de mês ────────────────────────────────────
   setMonth(mk) {
     if (!mk) return;
     this.selectedMonth = mk;
     document.querySelectorAll(".month-picker-input").forEach(el => { el.value = mk; });
-    // SEM auto-repetição de contas fixas — usuário gerencia manualmente
+    // Garante que as fixas recorrentes existam para o mês navegado
+    Store.ensureFixedBillsForMonth(mk);
     Pages.render(this.currentPage);
   },
 
@@ -61,31 +51,25 @@ const App = {
 
   isCurrentMonth() { return this.selectedMonth === Utils.currentMonthKey(); },
 
-  // ── Navegação ─────────────────────────────────────────
   buildNav() {
     document.getElementById("nav-list").innerHTML = NAV_ITEMS.map(it =>
       `<li class="nav-item" data-page="${it.id}"><span class="ic">${it.icon}</span>${it.label}</li>`
     ).join("");
     document.querySelectorAll(".nav-item").forEach(el => { el.onclick = () => this.goTo(el.dataset.page); });
 
-    const bottomNav = document.getElementById("bottom-nav");
-    bottomNav.innerHTML =
-      BOTTOM_NAV_IDS.map(id => {
-        const it = NAV_ITEMS.find(n => n.id===id);
-        return `<button class="bn-item" data-page="${id}"><span class="ic">${it.icon}</span>${it.label}</button>`;
-      }).join("") +
-      `<button class="bn-item bn-more" data-page="more"><span class="ic">⋯</span>Mais</button>`;
-
+    const bn = document.getElementById("bottom-nav");
+    bn.innerHTML = BOTTOM_NAV_IDS.map(id => {
+      const it = NAV_ITEMS.find(n=>n.id===id);
+      return `<button class="bn-item" data-page="${id}"><span class="ic">${it.icon}</span>${it.label}</button>`;
+    }).join("") + `<button class="bn-item bn-more" data-page="more"><span class="ic">⋯</span>Mais</button>`;
     document.querySelectorAll(".bn-item").forEach(el => {
       el.onclick = () => el.dataset.page==="more" ? this.openMoreMenu() : this.goTo(el.dataset.page);
     });
 
-    const moreCard = document.getElementById("more-menu-card");
-    moreCard.innerHTML = NAV_ITEMS
-      .filter(n => !BOTTOM_NAV_IDS.includes(n.id))
-      .map(it => `<button class="mm-item" data-page="${it.id}"><span class="ic-wrap">${it.icon}</span>${it.label}</button>`)
-      .join("");
-    moreCard.querySelectorAll(".mm-item").forEach(el => {
+    const mc = document.getElementById("more-menu-card");
+    mc.innerHTML = NAV_ITEMS.filter(n=>!BOTTOM_NAV_IDS.includes(n.id))
+      .map(it=>`<button class="mm-item" data-page="${it.id}"><span class="ic-wrap">${it.icon}</span>${it.label}</button>`).join("");
+    mc.querySelectorAll(".mm-item").forEach(el => {
       el.onclick = () => { this.closeMoreMenu(); this.goTo(el.dataset.page); };
     });
   },
@@ -102,7 +86,7 @@ const App = {
 
   bindGlobalEvents() {
     document.getElementById("theme-toggle-btn").onclick = () => {
-      const next = document.documentElement.getAttribute("data-theme")==="dark" ? "light" : "dark";
+      const next = document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
       document.documentElement.setAttribute("data-theme", next);
       localStorage.setItem(LS_THEME, next);
     };
