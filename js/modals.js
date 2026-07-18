@@ -1,9 +1,3 @@
-/* =========================================================
-   modals.js — Modais de cadastro/edição
-   MUDANÇAS: openMeta→openInvestimento (com aportesMensal),
-   openCartao removido, openNota adicionado
-   ========================================================= */
-
 const Modals = {
   closeAll(){
     document.getElementById("modal-backdrop").classList.remove("active");
@@ -25,7 +19,7 @@ const Modals = {
         </form>
       </div>`;
     document.getElementById("modal-backdrop").classList.add("active");
-    document.getElementById("modal-form").onsubmit=e=>{e.preventDefault();onSubmit(new FormData(e.target));};
+    document.getElementById("modal-form").onsubmit = e => { e.preventDefault(); onSubmit(new FormData(e.target)); };
   },
 
   catOpts(sel){
@@ -63,7 +57,7 @@ const Modals = {
         <div class="field"><label>Data</label><input name="data" type="date" required value="${item?.data||Utils.todayISO()}"></div>
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${item?.obs||""}</textarea></div>
-    `,(fd)=>{
+    `,fd=>{
       const d=Object.fromEntries(fd.entries());
       if(item)Store.update("despesas","Despesas",item.id,d); else Store.add("despesas","Despesas",d);
       Utils.toast("Despesa salva ✓"); Modals.closeAll(); Pages.render(App.currentPage);
@@ -82,32 +76,41 @@ const Modals = {
       </div>
       <div class="field"><label>Data</label><input name="data" type="date" required value="${item?.data||Utils.todayISO()}"></div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${item?.obs||""}</textarea></div>
-    `,(fd)=>{
+    `,fd=>{
       const d=Object.fromEntries(fd.entries());
       if(item)Store.update("receitas","Receitas",item.id,d); else Store.add("receitas","Receitas",d);
       Utils.toast("Receita salva ✓"); Modals.closeAll(); Pages.render(App.currentPage);
     });
   },
 
+  // ── Conta Fixa — usa criarContaFixaRecorrente / editarForward ──
   openFixa(id){
-    const item=id?Store.data.contasFixas.find(d=>d.id===id):null;
-    const mk=App.selectedMonth;
-    this.open(item?"Editar Conta Fixa":"Nova Conta Fixa",`
+    const item = id ? Store.data.contasFixas.find(c=>c.id===id) : null;
+    const isNew = !item;
+
+    this.open(
+      item ? "Editar Conta Fixa" : "Nova Conta Fixa",
+      `${!isNew ? `<div class="notice-bar" style="margin-bottom:12px;">
+        ✏️ Alterações aplicadas a partir de <strong>${Utils.monthLabel(item.mesReferencia)}</strong>
+        nos meses ainda não pagos.
+       </div>` : `<div class="notice-bar" style="margin-bottom:12px;">
+        📌 Será criada automaticamente a partir de
+        <strong>${Utils.monthLabel(App.selectedMonth)}</strong> pelos próximos 13 meses.
+       </div>`}
       <div class="field"><label>Nome</label><input name="nome" required value="${item?.nome||""}" autofocus></div>
       <div class="field-row">
         <div class="field"><label>Categoria</label><select name="categoria">${this.catOpts(item?.categoria)}</select></div>
         <div class="field"><label>Valor (R$)</label><input name="valor" type="number" step="0.01" required value="${item?.valor||""}"></div>
       </div>
-      <div class="field-row">
-        <div class="field"><label>Dia do vencimento</label><input name="diaVencimento" type="number" min="1" max="31" required value="${item?.diaVencimento||""}"></div>
-        <div class="field"><label>Mês de referência</label><input name="mesReferencia" type="month" value="${item?.mesReferencia||mk}"></div>
+      <div class="field"><label>Dia do vencimento</label>
+        <input name="diaVencimento" type="number" min="1" max="31" required value="${item?.diaVencimento||""}">
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${item?.obs||""}</textarea></div>
-    `,(fd)=>{
-      const d=Object.fromEntries(fd.entries());
-      if(item)Store.update("contasFixas","ContasFixas",item.id,d);
-      else{d.pago=false;d.dataPagamento="";d.horaPagamento="";Store.add("contasFixas","ContasFixas",d);}
-      Utils.toast("Conta fixa salva ✓"); Modals.closeAll(); Pages.render(App.currentPage);
+    `,
+    fd => {
+      const dados = Object.fromEntries(fd.entries());
+      Actions.salvarContaFixa(dados, id || null);
+      Modals.closeAll();
     });
   },
 
@@ -123,7 +126,7 @@ const Modals = {
         <div class="field"><label>Parcela atual</label><input name="parcelaAtual" type="number" min="1" required value="${item?.parcelaAtual||1}"></div>
         <div class="field"><label>Data final</label><input name="dataFinal" type="date" value="${item?.dataFinal||""}"></div>
       </div>
-    `,(fd)=>{
+    `,fd=>{
       const d=Object.fromEntries(fd.entries());
       d.valorRestante=(Number(d.qtdTotal)-Number(d.parcelaAtual)+1)*Number(d.valorParcela);
       if(item)Store.update("parcelamentos","Parcelamentos",item.id,d); else Store.add("parcelamentos","Parcelamentos",d);
@@ -131,12 +134,11 @@ const Modals = {
     });
   },
 
-  // ── Investimento (antes: Meta) ────────────────────────
   openInvestimento(id){
     const item=id?Store.data.investimentos.find(d=>d.id===id):null;
     this.open(item?"Editar Investimento":"Novo Investimento",`
       <div class="field"><label>Nome</label><input name="nome" required value="${item?.nome||""}" placeholder="Ex: Reserva de emergência" autofocus></div>
-      <div class="field"><label>Descrição</label><input name="descricao" value="${item?.descricao||""}" placeholder="Ex: Objetivo: 6 meses de despesas"></div>
+      <div class="field"><label>Descrição</label><input name="descricao" value="${item?.descricao||""}" placeholder="Objetivo"></div>
       <div class="field-row">
         <div class="field"><label>Meta (R$)</label><input name="valorAlvo" type="number" step="0.01" required value="${item?.valorAlvo||""}"></div>
         <div class="field"><label>Guardado até agora (R$)</label><input name="valorAtual" type="number" step="0.01" value="${item?.valorAtual||0}"></div>
@@ -144,13 +146,12 @@ const Modals = {
       <div class="field-row">
         <div class="field"><label>Aporte mensal (R$)</label>
           <input name="aportesMensal" type="number" step="0.01" value="${item?.aportesMensal||0}">
-          <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px;">Entra nas Contas do Mês no dashboard</div>
+          <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px;">Entra nas "Contas do mês" no dashboard</div>
         </div>
         <div class="field"><label>Data limite</label><input name="dataLimite" type="date" value="${item?.dataLimite||""}"></div>
       </div>
-    `,(fd)=>{
-      const d=Object.fromEntries(fd.entries());
-      d.ativo=true;
+    `,fd=>{
+      const d=Object.fromEntries(fd.entries()); d.ativo=true;
       if(item)Store.update("investimentos","Investimentos",item.id,d); else Store.add("investimentos","Investimentos",d);
       Utils.toast("Investimento salvo ✓"); Modals.closeAll(); Pages.render(App.currentPage);
     });
@@ -165,14 +166,11 @@ const Modals = {
         <div style="font-size:12px;color:var(--color-text-muted);margin-top:4px;">Meta: ${Utils.brl(inv.valorAlvo)}</div>
       </div>
       <div class="field"><label>Valor do aporte (R$)</label><input name="valor" type="number" step="0.01" required autofocus></div>
-    `,(fd)=>{
-      const d=Object.fromEntries(fd.entries());
-      Actions.registrarAporteInvestimento(id,d.valor);
-      Modals.closeAll();
+    `,fd=>{
+      Actions.registrarAporteInvestimento(id,Object.fromEntries(fd.entries()).valor); Modals.closeAll();
     });
   },
 
-  // ── Dívida ────────────────────────────────────────────
   openDivida(id){
     const item=id?Store.data.dividas.find(d=>d.id===id):null;
     const sts=[{v:"em_aberto",l:"Em aberto"},{v:"em_atraso",l:"Em atraso"},{v:"negociada",l:"Negociada"},{v:"parcelada",l:"Parcelada"},{v:"quitada",l:"Quitada"}];
@@ -197,7 +195,7 @@ const Modals = {
         <select name="status">${sts.map(s=>`<option value="${s.v}" ${(item?.status||"em_aberto")===s.v?"selected":""}>${s.l}</option>`).join("")}</select>
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${item?.obs||""}</textarea></div>
-    `,(fd)=>{
+    `,fd=>{
       const d=Object.fromEntries(fd.entries());
       d.valorPago=item?.valorPago||0;
       d.valorRestante=Math.max(0,Number(d.valorAtual)-Number(d.valorPago));
@@ -223,8 +221,8 @@ const Modals = {
         <div class="field"><label>Data</label><input name="data" type="date" value="${Utils.todayISO()}"></div>
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2"></textarea></div>
-      ${hist?`<div style="margin-top:8px;"><div style="font-size:11px;font-weight:700;color:var(--color-text-muted);margin-bottom:6px;">ÚLTIMOS PAGAMENTOS</div>${hist}</div>`:""}
-    `,(fd)=>{
+      ${hist?`<div style="margin-top:8px;font-size:11px;font-weight:700;color:var(--color-text-muted);">ÚLTIMOS PAGAMENTOS</div>${hist}`:""}
+    `,fd=>{
       const d=Object.fromEntries(fd.entries());
       Actions.registrarPagamentoDivida(dividaId,d.valor,d.data,d.obs); Modals.closeAll();
     });
@@ -247,25 +245,24 @@ const Modals = {
       </div>
       <div class="field"><label>Data da negociação</label><input name="dataNegociacao" type="date" value="${Utils.todayISO()}"></div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2"></textarea></div>
-    `,(fd)=>{
+    `,fd=>{
       Actions.negociarDivida(dividaId,Object.fromEntries(fd.entries())); Modals.closeAll();
     });
   },
 
-  // ── Nota ─────────────────────────────────────────────
   openNota(id){
     const item=id?Store.data.notas.find(n=>n.id===id):null;
     const cores=["#FFF9C4","#C8E6C9","#BBDEFB","#F8BBD0","#FFE0B2","#E1BEE7","#B2EBF2","#DCEDC8"];
     const corAtual=item?.cor||"#FFF9C4";
     const picker=cores.map(c=>`<button type="button" class="cor-btn ${c===corAtual?"selected":""}" data-cor="${c}"
-       style="background:${c}"
-       onclick="this.closest('form').querySelector('[name=cor]').value='${c}';this.closest('.cor-picker').querySelectorAll('.cor-btn').forEach(b=>b.classList.remove('selected'));this.classList.add('selected')"></button>`).join("");
+      style="background:${c}"
+      onclick="this.closest('form').querySelector('[name=cor]').value='${c}';this.closest('.cor-picker').querySelectorAll('.cor-btn').forEach(b=>b.classList.remove('selected'));this.classList.add('selected')"></button>`).join("");
     this.open(item?"Editar nota":"Nova nota",`
       <div class="field"><label>Título</label><input name="titulo" value="${item?.titulo||""}" placeholder="Título da nota" autofocus></div>
       <div class="field"><label>Conteúdo</label><textarea name="conteudo" rows="5" placeholder="Escreva aqui...">${item?.conteudo||""}</textarea></div>
       <div class="field"><label>Cor</label><div class="cor-picker">${picker}</div><input type="hidden" name="cor" value="${corAtual}"></div>
       ${id?`<input type="hidden" name="id" value="${id}">`:""}
-    `,(fd)=>{
+    `,fd=>{
       Actions.saveNota(Object.fromEntries(fd.entries())); Modals.closeAll();
     });
   },
