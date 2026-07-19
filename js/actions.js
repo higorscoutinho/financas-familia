@@ -1,31 +1,44 @@
 const Actions={
 
-  // ═══════════════ CONTAS FIXAS ═══════════════
+  // ═══ CONTAS FIXAS ════════════════════════════════════════
 
-  // Chamado pelo modal ao salvar
-  salvarContaFixa(dados, editId){
+  salvarContaFixa(dados,editId){
     if(editId){
       Store.editarContaFixa(editId,{
-        nome:dados.nome, categoria:dados.categoria,
-        valor:dados.valor, diaVencimento:dados.diaVencimento, obs:dados.obs||"",
+        nome:dados.nome,categoria:dados.categoria,
+        valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
       });
-      Utils.toast("Conta atualizada (meses seguintes não pagos) ✓");
+      Utils.toast("Conta atualizada ✓");
     }else{
       Store.criarContaFixa({
-        nome:dados.nome, categoria:dados.categoria,
-        valor:dados.valor, diaVencimento:dados.diaVencimento, obs:dados.obs||"",
+        nome:dados.nome,categoria:dados.categoria,
+        valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
       });
-      Utils.toast("Conta fixa criada ✓ — aparece automaticamente nos meses seguintes");
+      Utils.toast("Conta fixa criada ✓");
     }
-    Pages.render(App.currentPage);
+    // Navega para a página de fixas para o usuário ver o resultado
+    App.goTo("fixas");
   },
 
   excluirContaFixa(id){
-    const item=Store.data.contasFixas.find(c=>c.id===id);
-    if(!item)return;
+    const item=Store.data.contasFixas.find(c=>c.id===id);if(!item)return;
     if(!confirm(`Excluir "${item.nome}" deste mês em diante?\nMeses já pagos permanecem.`))return;
     Store.excluirContaFixa(id);
     Utils.toast("Excluída deste mês em diante ✓");
+    Pages.render(App.currentPage);
+  },
+
+  // Move conta para outro mês de referência
+  moveFixaToMonth(id,novoMk){
+    if(!novoMk||!id)return;
+    const item=Store.data.contasFixas.find(c=>c.id===id);if(!item)return;
+    const mk=novoMk.slice(0,7);
+    const jaExiste=Store.data.contasFixas.some(c=>c.grupoId===item.grupoId&&Store._normMk(c.mesReferencia)===mk&&c.id!==id);
+    if(jaExiste){Utils.toast(`Já existe em ${Utils.monthLabel(mk)}`);return;}
+    Store.update("contasFixas","ContasFixas",id,{
+      mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
+    });
+    Utils.toast(`Conta movida para ${Utils.monthLabel(mk)}`);
     Pages.render(App.currentPage);
   },
 
@@ -37,31 +50,29 @@ const Actions={
       dataPagamento:pago?Utils.todayISO():"",
       horaPagamento:pago?new Date().toLocaleTimeString("pt-BR"):"",
     });
-    // Sincroniza dívida vinculada
     const dv=Store.data.dividas.find(d=>d.contaFixaId===id&&d.status!=="quitada");
     if(dv){
       if(pago){
         Store.update("dividas","Dividas",dv.id,{status:"quitada",valorPago:dv.valorOriginal,valorRestante:0});
         Store.addHistoricoDivida(dv.id,"quitada","Conta paga — dívida encerrada",dv.valorOriginal);
-        Utils.toast("Pago e dívida encerrada ✓");
       }else{
         Store.update("dividas","Dividas",dv.id,{status:"em_atraso",valorPago:0,valorRestante:dv.valorOriginal});
-        Utils.toast("Pagamento desfeito");
       }
-    }else{
-      Utils.toast(pago?"Pago ✓":"Pagamento desfeito");
     }
+    Utils.toast(pago?"Pago ✓":"Pagamento desfeito");
     Pages.render(App.currentPage);
   },
 
-  // ═══════════════ PARCELAMENTOS ═══════════════
+  // ═══ PARCELAMENTOS ═══════════════════════════════════════
+
   toggleParcelamentoPago(id){
     const pago=Store.toggleParcelamentoPago(id,App.selectedMonth);
     Utils.toast(pago?"Parcela paga ✓":"Marcação desfeita");
     Pages.render(App.currentPage);
   },
 
-  // ═══════════════ DÍVIDAS ═══════════════
+  // ═══ DÍVIDAS ═════════════════════════════════════════════
+
   registrarPagamentoDivida(dividaId,valor,data,obs){
     const dv=Store.data.dividas.find(d=>d.id===dividaId);if(!dv)return;
     const p={id:Utils.uid("pag"),dividaId,valor:Number(valor)||0,data:data||Utils.todayISO(),obs:obs||"",criadoPor:App.currentUser};
@@ -106,7 +117,8 @@ const Actions={
     Utils.toast("Dívida quitada ✓");Pages.render(App.currentPage);
   },
 
-  // ═══════════════ INVESTIMENTOS ═══════════════
+  // ═══ INVESTIMENTOS ═══════════════════════════════════════
+
   registrarAporteInvestimento(id,valor){
     const inv=Store.data.investimentos.find(i=>i.id===id);if(!inv)return;
     Store.update("investimentos","Investimentos",id,{valorAtual:Math.max(0,(Number(inv.valorAtual)||0)+Number(valor||0))});
@@ -114,7 +126,8 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
-  // ═══════════════ NOTAS ═══════════════
+  // ═══ NOTAS ═══════════════════════════════════════════════
+
   saveNota(dados){
     const existe=dados.id?Store.data.notas.find(n=>n.id===dados.id):null;
     if(existe){
@@ -132,7 +145,8 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
-  // ═══════════════ GENÉRICO ═══════════════
+  // ═══ GENÉRICO ════════════════════════════════════════════
+
   remove(col,sheet,id){
     if(!confirm("Excluir este registro?"))return;
     Store.remove(col,sheet,id);Utils.toast("Removido");
