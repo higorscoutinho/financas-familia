@@ -46,13 +46,12 @@ const Pages={
   },
 
   // ═══ DASHBOARD ══════════════════════════════════════════════
-  // Alerta de dívidas REMOVIDO — só aparece na tela Dívidas
-  // Alertas de vencimento de fixas permanecem
   dashboard(main){
     const mk=App.selectedMonth,mkPrev=Utils.prevMonthKey(mk),isNow=App.isCurrentMonth();
     const despMes=Store.monthDespesas(mk),recMes=Store.monthReceitas(mk);
     const fixasMes=Store.monthFixedBills(mk),parcMes=Store.monthParcelamentos(mk);
     const invAtivos=Store.monthInvestimentos();
+
     const totalRec=Store.sum(recMes);
     const totalDesp=Store.sum(despMes);
     const totalFixas=Store.sum(fixasMes);
@@ -60,8 +59,14 @@ const Pages={
     const totalInv=invAtivos.reduce((s,i)=>s+Number(i.aportesMensal||0),0);
     const contasMes=totalFixas+totalParc+totalDesp+totalInv;
     const saldo=totalRec-contasMes;
-    const diasMes=Utils.daysInMonth(mk),diaHoje=isNow?Utils.dayOfMonthToday():diasMes;
-    const porDia=isNow&&saldo>0?saldo/Math.max(1,diasMes-diaHoje+1):0;
+
+    // NOVO: "falta pagar este mês" = fixas não pagas + parcelas não marcadas
+    const fixasAbertas=fixasMes.filter(f=>!f.pago);
+    const totalFixasAbertas=Store.sum(fixasAbertas);
+    const totalParcAbertas=parcMes.filter(p=>!Store.isParcelamentoPago(p.id,mk))
+      .reduce((s,p)=>s+Number(p.valorParcela||0),0);
+    const faltaPagar=totalFixasAbertas+totalParcAbertas;
+
     const metaEcon=Number(Store.data.configuracoes.metaEconomiaMensal)||0;
     const totalPrev=Store.sum(Store.monthDespesas(mkPrev));
     const delta=totalPrev?(((contasMes-totalPrev)/totalPrev)*100).toFixed(0):null;
@@ -77,18 +82,16 @@ const Pages={
       main.appendChild(bar);
     }
 
-    // Cards — SEM alerta de dívidas no dashboard
     const grid=document.createElement("div");grid.className="grid grid-stats";
     grid.innerHTML=`
       ${this.statCard("blue","💼","Saldo do mês",Utils.brl(saldo))}
       ${this.statCard("green","💰","Receitas",Utils.brl(totalRec))}
-      ${this.statCard("amber","📋","Contas do mês",Utils.brl(contasMes),"Fixas + parcelas + despesas + investimentos")}
+      ${this.statCard("amber","📋","Contas do mês",Utils.brl(contasMes),"Fixas + parcelas + despesas")}
+      ${this.statCard("red","⏳","Falta pagar este mês",Utils.brl(faltaPagar),"Fixas e parcelas em aberto")}
       ${totalInv>0?this.statCard("green","📈","Investimentos",Utils.brl(totalInv),"Aportes mensais"):""}
-      ${isNow?this.statCard("green","📅","Posso gastar/dia",Utils.brl(porDia)):""}
     `;
     main.appendChild(grid);
 
-    // Comparativo + Meta
     const row2=document.createElement("div");row2.className="grid grid-2";row2.style.marginTop="16px";
     const cComp=document.createElement("div");cComp.className="card";
     cComp.innerHTML=`<h3>Comparativo — mês anterior</h3><div id="chart-comp"></div>
@@ -109,7 +112,6 @@ const Pages={
     row2.appendChild(cMeta);
     main.appendChild(row2);
 
-    // Top gastos + Alertas de vencimento de fixas (mantidos)
     const row3=document.createElement("div");row3.className="grid grid-2";row3.style.marginTop="16px";
     const topItems=[...despMes,...fixasMes.filter(f=>f.pago),...parcMes.map(p=>({nome:p.nome,categoria:"Parcelamento",valor:p.valorParcela}))]
       .sort((a,b)=>(Number(b.valor)||0)-(Number(a.valor)||0)).slice(0,5);
@@ -121,19 +123,20 @@ const Pages={
       </div>`);
     row3.appendChild(cTop);
 
-    // Alertas de vencimento (fixas com conta atrasada ou próxima)
+    // Alertas: apenas fixas não pagas do mês atual
     if(isNow){
-      const alertas=fixasMes.filter(f=>!f.pago).map(f=>({...f,dias:Utils.daysUntil(Number(f.diaVencimento))})).sort((a,b)=>a.dias-b.dias);
+      const alertas=fixasAbertas.map(f=>({...f,dias:Utils.daysUntil(Number(f.diaVencimento))}))
+        .sort((a,b)=>a.dias-b.dias);
       const cAlert=document.createElement("div");cAlert.className="card";
-      cAlert.innerHTML=`<h3>Alertas de vencimento</h3>`+this.listOrEmpty(alertas,f=>{
+      cAlert.innerHTML=`<h3>Contas em aberto este mês</h3>`+this.listOrEmpty(alertas,f=>{
         const badge=f.dias<0?`<span class="badge red">Atrasada (${Math.abs(f.dias)}d)</span>`:
           f.dias===0?`<span class="badge red">Vence hoje</span>`:
           f.dias===1?`<span class="badge amber">Amanhã</span>`:
           f.dias<=3?`<span class="badge amber">Em ${f.dias}d</span>`:`<span class="badge gray">Em ${f.dias}d</span>`;
         return`<div class="list-row">
-          <div class="row-main"><div class="row-title">${Utils.escapeHtml(f.nome)}</div><div class="row-sub">Dia ${f.diaVencimento}</div></div>
+          <div class="row-main"><div class="row-title">${Utils.escapeHtml(f.nome)}</div><div class="row-sub">Dia ${f.diaVencimento} · ${Utils.brl(f.valor)}</div></div>
           ${badge}
-          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="Actions.payFixedBill('${f.id}')">✓ Pago</button>
+          <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="Actions.payFixedBill('${f.id}')">✓ Pago</button>
         </div>`;
       },"🎉 Tudo pago neste mês!");
       row3.appendChild(cAlert);
@@ -147,30 +150,19 @@ const Pages={
   // ═══ CONTAS FIXAS ══════════════════════════════════════════
   fixas(main){
     const mk=App.selectedMonth;
-    this.header(main,"Contas Fixas",`${Utils.monthLabel(mk)} — criadas automaticamente todo mês`);
+    this.header(main,"Contas Fixas",`${Utils.monthLabel(mk)}`);
     this.monthSelector(main);
     main.appendChild(this.actionsBar("+ Nova Conta Fixa",()=>Modals.openFixa()));
     if(!App.isCurrentMonth()){
       const bar=document.createElement("div");bar.className="notice-bar";
-      bar.innerHTML=`🔍 Visualizando <strong>${Utils.monthLabel(mk)}</strong> — modo consulta`;
-      main.appendChild(bar);
+      bar.innerHTML=`🔍 Visualizando <strong>${Utils.monthLabel(mk)}</strong>`;main.appendChild(bar);
     }
     const list=Store.monthFixedBills(mk).sort((a,b)=>Number(a.diaVencimento)-Number(b.diaVencimento));
-    const mkOpts=()=>{
-      const o=[];
-      for(let d=-3;d<=3;d++){
-        const dt=new Date();dt.setDate(1);dt.setMonth(dt.getMonth()+d);
-        const k=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-        o.push(k);
-      }
-      return o;
-    };
+    const mkOpts=()=>{const o=[];for(let d=-3;d<=3;d++){const dt=new Date();dt.setDate(1);dt.setMonth(dt.getMonth()+d);const k=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;o.push(k);}return o;};
     const card=document.createElement("div");card.className="card";
     card.innerHTML=this.listOrEmpty(list,f=>{
       const dias=Utils.daysUntil(Number(f.diaVencimento));
-      const badge=f.pago?`<span class="badge green">Pago</span>`:
-        dias<0?`<span class="badge red">Atrasada</span>`:
-        dias<=3?`<span class="badge amber">Em ${dias}d</span>`:`<span class="badge gray">Dia ${f.diaVencimento}</span>`;
+      const badge=f.pago?`<span class="badge green">Pago</span>`:dias<0?`<span class="badge red">Atrasada</span>`:dias<=3?`<span class="badge amber">Em ${dias}d</span>`:`<span class="badge gray">Dia ${f.diaVencimento}</span>`;
       const opts=mkOpts().map(k=>`<option value="${k}" ${k===Store._normMk(f.mesReferencia)?"selected":""}>${Utils.monthLabel(k)}</option>`).join("");
       return`<div class="list-row" style="flex-wrap:wrap;gap:8px;">
         <div class="row-main" style="min-width:140px;">
@@ -184,7 +176,7 @@ const Pages={
         <button class="btn btn-sm btn-ghost" onclick="Modals.openFixa('${f.id}')">✏️</button>
         <button class="btn btn-sm btn-ghost" onclick="Actions.excluirContaFixa('${f.id}')">🗑️</button>
       </div>`;
-    },"Nenhuma conta fixa neste mês. Clique em \"+ Nova Conta Fixa\".");
+    },"Nenhuma conta fixa neste mês.");
     main.appendChild(card);
   },
 
@@ -223,10 +215,8 @@ const Pages={
     const renderLista=filtro=>{
       const lista=filtro==="todas"?Store.data.dividas:Store.data.dividas.filter(d=>d.status===filtro);
       const ord={em_atraso:0,em_aberto:1,negociada:2,parcelada:3,quitada:4};
-      const sorted=[...lista].sort((a,b)=>(ord[a.status]??5)-(ord[b.status]??5));
-      lw.innerHTML=sorted.length===0
-        ?`<div class="card"><div class="empty-state"><div class="emoji">🎉</div><p>Nenhuma dívida aqui!</p></div></div>`
-        :sorted.map(d=>this.debtCard(d)).join("");
+      lw.innerHTML=[...lista].sort((a,b)=>(ord[a.status]??5)-(ord[b.status]??5)).map(d=>this.debtCard(d)).join("")
+        ||`<div class="card"><div class="empty-state"><div class="emoji">🎉</div><p>Nenhuma dívida aqui!</p></div></div>`;
     };
     fb.querySelectorAll(".filter-chip").forEach(chip=>{
       chip.onclick=()=>{fb.querySelectorAll(".filter-chip").forEach(c=>c.classList.remove("active"));chip.classList.add("active");renderLista(chip.dataset.status);};
@@ -249,7 +239,7 @@ const Pages={
         <div><div class="debt-card-name">${Utils.escapeHtml(d.nome)}</div>${d.credor?`<div class="debt-card-credor">${Utils.escapeHtml(d.credor)}</div>`:""}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <span class="badge ${sCls}">${sLabel}</span>
-          <span class="badge ${pCls}">Prioridade ${pLabel}</span>
+          <span class="badge ${pCls}">${pLabel}</span>
         </div>
       </div>
       <div class="debt-card-values">
@@ -262,14 +252,18 @@ const Pages={
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-muted);margin-top:4px;"><span>Pago ${pct.toFixed(0)}%</span><span>Restante ${Utils.brl(d.valorRestante)}</span></div>
       </div>
       ${hist?`<div class="debt-history">${hist}</div>`:""}
-      ${!isQ?`<div class="debt-card-actions">
-        <button class="btn btn-sm btn-primary" onclick="Modals.openPagamentoDivida('${d.id}')">💳 Pagamento</button>
+      ${!isQ?`
+      <div class="debt-card-actions">
+        <button class="btn btn-sm btn-primary" onclick="Modals.openPagamentoDivida('${d.id}')">💳 Pagar</button>
+        <button class="btn btn-sm btn-secondary" onclick="Modals.openParcelarDivida('${d.id}')">📦 Parcelar</button>
         <button class="btn btn-sm btn-secondary" onclick="Modals.openNegociacaoDivida('${d.id}')">🤝 Negociar</button>
         <button class="btn btn-sm btn-secondary" onclick="Modals.openDivida('${d.id}')">✏️ Editar</button>
         <button class="btn btn-sm btn-danger" onclick="Actions.quitarDivida('${d.id}')">✅ Quitar</button>
-      </div>`:`<div class="debt-card-actions">
+        <button class="btn btn-sm btn-ghost" onclick="Actions.excluirDivida('${d.id}')">🗑️ Excluir</button>
+      </div>`:`
+      <div class="debt-card-actions">
         <button class="btn btn-sm btn-ghost" onclick="Modals.openDivida('${d.id}')">✏️ Editar</button>
-        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('dividas','Dividas','${d.id}')">🗑️ Excluir</button>
+        <button class="btn btn-sm btn-ghost" onclick="Actions.excluirDivida('${d.id}')">🗑️ Excluir</button>
       </div>`}
     </div>`;
   },
@@ -359,7 +353,7 @@ const Pages={
     }
     if(!invs.length){
       const card=document.createElement("div");card.className="card";
-      card.innerHTML=`<div class="empty-state"><div class="emoji">📈</div><p>Nenhum investimento cadastrado ainda.</p></div>`;
+      card.innerHTML=`<div class="empty-state"><div class="emoji">📈</div><p>Nenhum investimento cadastrado.</p></div>`;
       main.appendChild(card);return;
     }
     const grid=document.createElement("div");grid.className="grid grid-2";
@@ -420,15 +414,25 @@ const Pages={
   config(main){
     this.header(main,"Configurações");
     const row=document.createElement("div");row.className="grid grid-2";
+
     const c1=document.createElement("div");c1.className="card";
+    const temaAtual=document.documentElement.getAttribute("data-theme")||"light";
     c1.innerHTML=`<h3>Sistema</h3>
       <div class="field" style="margin-top:8px;"><label>Meta de economia mensal (R$)</label><input type="number" id="cfg-meta" value="${Store.data.configuracoes.metaEconomiaMensal||0}"></div>
       <div class="field" style="margin-top:12px;">
         <label>Mês de início do sistema</label>
         <input type="month" id="cfg-inicio" value="${Store.data.configuracoes.dataInicioSistema||"2026-08"}">
       </div>
-      <button class="btn btn-primary btn-sm" style="margin-top:16px;" onclick="Actions.saveConfig()">Salvar</button>`;
+      <button class="btn btn-primary btn-sm" style="margin-top:16px;" onclick="Actions.saveConfig()">Salvar</button>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+        <div style="font-size:12.5px;font-weight:600;color:var(--color-text-muted);margin-bottom:10px;">APARÊNCIA</div>
+        <button class="btn btn-secondary" id="cfg-theme-btn" onclick="Actions.toggleTheme(this)"
+          style="width:100%;justify-content:center;">
+          ${temaAtual==="dark"?"☀️ Mudar para tema claro":"🌙 Mudar para tema escuro"}
+        </button>
+      </div>`;
     row.appendChild(c1);
+
     const c2=document.createElement("div");c2.className="card";
     c2.innerHTML=`<h3>Categorias</h3><div id="cat-list" class="legend"></div>
       <div class="field-row" style="margin-top:12px;">
@@ -436,17 +440,20 @@ const Pages={
         <button class="btn btn-secondary btn-sm" onclick="Actions.addCategory()">Adicionar</button>
       </div>`;
     row.appendChild(c2);
+
     const c3=document.createElement("div");c3.className="card";
     c3.innerHTML=`<h3>Usuários</h3>
       <p class="row-sub">Usuário 1: <strong>${window.APP_CONFIG?.USER_1||"Higor"}</strong></p>
       <p class="row-sub" style="margin-top:6px;">Usuário 2: <strong>${window.APP_CONFIG?.USER_2||"Bia"}</strong></p>
-      <p class="row-sub" style="margin-top:12px;">Para alterar nomes ou redefinir senhas, edite <code>js/config.js</code>.</p>`;
+      <p class="row-sub" style="margin-top:12px;">Para alterar nomes ou senhas, edite <code>js/config.js</code>.</p>`;
     row.appendChild(c3);
+
     const c4=document.createElement("div");c4.className="card";
     c4.innerHTML=`<h3>Exportar dados</h3>
-      <p class="row-sub" style="margin-bottom:12px;">Exporta o mês selecionado para Excel/Sheets.</p>
-      <button class="btn btn-secondary btn-sm" onclick="Actions.exportCSV()">⬇ Exportar CSV</button>`;
+      <p class="row-sub" style="margin-bottom:12px;">Exporta o mês selecionado em CSV (abre no Excel).</p>
+      <button class="btn btn-secondary btn-sm" onclick="Actions.exportCSV()">⬇ Exportar CSV do mês</button>`;
     row.appendChild(c4);
+
     main.appendChild(row);
     this.renderCategoryChips();
   },
