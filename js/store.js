@@ -14,16 +14,22 @@ const Store={
   },
   parcelamentosPagos:{},queue:[],syncing:false,
 
-  /* Merge: o Sheets é a fonte da verdade.
-     Itens locais ainda na fila (não confirmados) são preservados. */
+  // Normaliza mesReferencia: "2026-07-01" ou "2026-07" → sempre "2026-07"
+  _normMk(v){ return (v||"").slice(0,7); },
+
   _merge(remote,local){
-    if(!Array.isArray(remote)) remote=[];
-    if(!Array.isArray(local))  local=[];
+    if(!Array.isArray(remote))remote=[];
+    if(!Array.isArray(local))local=[];
     const remoteIds=new Set(remote.map(i=>i?.id).filter(Boolean));
-    // IDs ainda pendentes na fila → preserva no local
     const pendingIds=new Set(this.queue.filter(q=>q.op==="create").map(q=>q.data?.id).filter(Boolean));
     const extras=local.filter(i=>i?.id&&!remoteIds.has(i.id)&&pendingIds.has(i.id));
-    return [...remote,...extras];
+    return[...remote,...extras];
+  },
+
+  // Normaliza mesReferencia de todas as contasFixas vindas do Sheets
+  _normalizeFixas(arr){
+    if(!Array.isArray(arr))return[];
+    return arr.map(c=>c?{...c,mesReferencia:this._normMk(c.mesReferencia)}:c);
   },
 
   loadLocal(){
@@ -32,10 +38,12 @@ const Store={
       if(raw){
         const p=JSON.parse(raw);
         if(p.metas&&!p.investimentos){p.investimentos=p.metas;delete p.metas;}
+        // Normaliza fixas do cache local também
+        if(p.contasFixas)p.contasFixas=this._normalizeFixas(p.contasFixas);
         this.data={...this.data,...p};
       }
-      const q=localStorage.getItem(LS_QUEUE);   if(q)  this.queue=JSON.parse(q);
-      const pp=localStorage.getItem(LS_PARC);   if(pp) this.parcelamentosPagos=JSON.parse(pp);
+      const q=localStorage.getItem(LS_QUEUE);if(q)this.queue=JSON.parse(q);
+      const pp=localStorage.getItem(LS_PARC);if(pp)this.parcelamentosPagos=JSON.parse(pp);
     }catch(e){console.warn("Cache corrompido",e);}
   },
 
@@ -52,19 +60,20 @@ const Store={
       if(remote){
         const inv=remote.investimentos||remote.metas||[];
         this.data={
-          receitas:          this._merge(remote.receitas,          this.data.receitas),
-          despesas:          this._merge(remote.despesas,          this.data.despesas),
-          contasFixas:       this._merge(remote.contasFixas,       this.data.contasFixas),
-          parcelamentos:     this._merge(remote.parcelamentos,     this.data.parcelamentos),
+          receitas:          this._merge(remote.receitas,                            this.data.receitas),
+          despesas:          this._merge(remote.despesas,                            this.data.despesas),
+          // CORREÇÃO: normaliza mesReferencia antes do merge
+          contasFixas:       this._merge(this._normalizeFixas(remote.contasFixas),   this.data.contasFixas),
+          parcelamentos:     this._merge(remote.parcelamentos,                       this.data.parcelamentos),
           categorias:        remote.categorias?.length?remote.categorias:this.data.categorias,
-          investimentos:     this._merge(inv,                      this.data.investimentos),
+          investimentos:     this._merge(inv,                                        this.data.investimentos),
           configuracoes:     remote.configuracoes||this.data.configuracoes,
-          logs:              this._merge(remote.logs,              this.data.logs),
-          dividas:           this._merge(remote.dividas,           this.data.dividas),
-          pagamentosDividas: this._merge(remote.pagamentosDividas, this.data.pagamentosDividas),
-          negociacoesDividas:this._merge(remote.negociacoesDividas,this.data.negociacoesDividas),
-          historicoDividas:  this._merge(remote.historicoDividas,  this.data.historicoDividas),
-          notas:             this._merge(remote.notas,             this.data.notas),
+          logs:              this._merge(remote.logs,                                this.data.logs),
+          dividas:           this._merge(remote.dividas,                             this.data.dividas),
+          pagamentosDividas: this._merge(remote.pagamentosDividas,                   this.data.pagamentosDividas),
+          negociacoesDividas:this._merge(remote.negociacoesDividas,                  this.data.negociacoesDividas),
+          historicoDividas:  this._merge(remote.historicoDividas,                    this.data.historicoDividas),
+          notas:             this._merge(remote.notas,                               this.data.notas),
         };
         this.saveLocal();
         Utils.toast("Sincronizado ✓");
@@ -73,16 +82,14 @@ const Store={
       }
       this.flushQueue();
     }
-    // Garante instâncias do mês atual para fixas já existentes
     this.ensureFixedBillsForMonth(Utils.currentMonthKey());
   },
 
-  // ═══════════════ CONTAS FIXAS RECORRENTES ═══════════════
+  // ═══ CONTAS FIXAS RECORRENTES ═══════════════════════════════
 
-  // Cria conta fixa para o mês atual; meses seguintes criados ao navegar
   criarContaFixa(dados){
     const grupoId=Utils.uid("grp");
-    const mk=typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey();
+    const mk=this._normMk(typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey());
     const inst={
       id:Utils.uid("fix"),grupoId,
       nome:dados.nome,categoria:dados.categoria,
@@ -96,24 +103,24 @@ const Store={
     return inst;
   },
 
-  // Ao navegar para um mês: cria automaticamente as fixas recorrentes que faltam
   ensureFixedBillsForMonth(mk){
+    mk=this._normMk(mk);
     const grupos={};
     this.data.contasFixas.forEach(c=>{
       if(!c.grupoId)return;
+      const ref=this._normMk(c.mesReferencia);
       if(!grupos[c.grupoId])grupos[c.grupoId]=[];
-      grupos[c.grupoId].push(c);
+      grupos[c.grupoId].push({...c,mesReferencia:ref});
     });
     let criou=false;
     Object.entries(grupos).forEach(([grupoId,instances])=>{
       if(instances.some(c=>c.mesReferencia===mk))return;
       const sorted=[...instances].sort((a,b)=>a.mesReferencia.localeCompare(b.mesReferencia));
       const tpl=sorted[0];
-      if(tpl.mesReferencia>mk)return; // conta não existia ainda neste mês
+      if(tpl.mesReferencia>mk)return;
       const novo={
-        ...tpl,
-        id:Utils.uid("fix"),grupoId,mesReferencia:mk,
-        pago:false,dataPagamento:"",horaPagamento:"",
+        ...tpl,id:Utils.uid("fix"),grupoId,
+        mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
       };
       this.data.contasFixas.push(novo);
       this.queueChange("ContasFixas","create",novo);
@@ -122,16 +129,17 @@ const Store={
     if(criou)this.saveLocal();
   },
 
-  // Editar: aplica do mês atual em diante nos meses NÃO pagos
   editarContaFixa(id,patch){
-    const base=this.data.contasFixas.find(c=>c.id===id);
-    if(!base)return;
-    const {grupoId,mesReferencia:mk}=base;
+    const base=this.data.contasFixas.find(c=>c.id===id);if(!base)return;
+    const grupoId=base.grupoId;
+    const mk=this._normMk(base.mesReferencia);
     this.data.contasFixas.forEach((c,i)=>{
-      if(c.grupoId!==grupoId||c.mesReferencia<mk||c.pago)return;
+      if(c.grupoId!==grupoId)return;
+      if(this._normMk(c.mesReferencia)<mk)return;
+      if(c.pago)return;
       this.data.contasFixas[i]={
         ...c,...patch,
-        id:c.id,grupoId,mesReferencia:c.mesReferencia,
+        id:c.id,grupoId,mesReferencia:this._normMk(c.mesReferencia),
         pago:c.pago,dataPagamento:c.dataPagamento,horaPagamento:c.horaPagamento,
       };
       this.queueChange("ContasFixas","update",this.data.contasFixas[i]);
@@ -139,23 +147,18 @@ const Store={
     this.saveLocal();
   },
 
-  // Excluir: remove do mês atual em diante; passado/pago fica
   excluirContaFixa(id){
-    const base=this.data.contasFixas.find(c=>c.id===id);
-    if(!base)return;
-    const {grupoId,mesReferencia:mk}=base;
-    this.data.contasFixas
-      .filter(c=>c.grupoId===grupoId&&c.mesReferencia>=mk)
-      .forEach(c=>{
-        this.queueChange("ContasFixas","delete",{id:c.id});
-      });
-    this.data.contasFixas=this.data.contasFixas.filter(
-      c=>!(c.grupoId===grupoId&&c.mesReferencia>=mk)
-    );
+    const base=this.data.contasFixas.find(c=>c.id===id);if(!base)return;
+    const grupoId=base.grupoId;
+    const mk=this._normMk(base.mesReferencia);
+    const remover=this.data.contasFixas.filter(c=>c.grupoId===grupoId&&this._normMk(c.mesReferencia)>=mk);
+    remover.forEach(c=>this.queueChange("ContasFixas","delete",{id:c.id}));
+    this.data.contasFixas=this.data.contasFixas.filter(c=>!(c.grupoId===grupoId&&this._normMk(c.mesReferencia)>=mk));
     this.saveLocal();
   },
 
-  // ═══════════════ DÍVIDAS ═══════════════
+  // ═══ DÍVIDAS ════════════════════════════════════════════════
+
   getPrioridade(cat){
     cat=(cat||"").toLowerCase();
     if(["moradia","aluguel","financiamento","faculdade","educação","educacao","condomínio","condominio"].some(a=>cat.includes(a)))return"alta";
@@ -202,7 +205,8 @@ const Store={
     return Math.max(0,Math.floor((now-due)/86400000));
   },
 
-  // ═══════════════ PARCELAMENTOS ═══════════════
+  // ═══ PARCELAMENTOS ══════════════════════════════════════════
+
   getInstallmentForMonth(p,mk){
     const total=Number(p.qtdTotal)||1,df=(p.dataFinal||"").slice(0,7);
     if(!df)return Number(p.parcelaAtual)||1;
@@ -220,7 +224,8 @@ const Store={
     this.saveLocal();return pago;
   },
 
-  // ═══════════════ FILA ═══════════════
+  // ═══ FILA ═══════════════════════════════════════════════════
+
   queueChange(sheet,op,data){
     const user=typeof App!=="undefined"?App.currentUser:"Sistema";
     this.queue.push({sheet,op,data,user,ts:Date.now()});
@@ -238,7 +243,8 @@ const Store={
     this.syncing=false;
   },
 
-  // ═══════════════ CRUD ═══════════════
+  // ═══ CRUD ═══════════════════════════════════════════════════
+
   add(col,sheet,record){
     record.id=record.id||Utils.uid(col.slice(0,3));
     record.criadoPor=typeof App!=="undefined"?App.currentUser:"Sistema";
@@ -267,10 +273,17 @@ const Store={
     this.data.logs=this.data.logs.slice(0,300);
   },
 
-  // ═══════════════ CONSULTAS ═══════════════
+  // ═══ CONSULTAS ══════════════════════════════════════════════
+
   monthDespesas(mk)  {return this.data.despesas.filter(d=>Utils.monthKey(d.data)===mk);},
   monthReceitas(mk)  {return this.data.receitas.filter(r=>Utils.monthKey(r.data)===mk);},
-  monthFixedBills(mk){return this.data.contasFixas.filter(c=>c.mesReferencia===mk);},
+
+  // CORREÇÃO: compara sempre os primeiros 7 chars (YYYY-MM)
+  monthFixedBills(mk){
+    const m=this._normMk(mk);
+    return this.data.contasFixas.filter(c=>this._normMk(c.mesReferencia)===m);
+  },
+
   monthParcelamentos(mk){
     return this.data.parcelamentos.filter(p=>{
       const total=Number(p.qtdTotal)||1,df=(p.dataFinal||"").slice(0,7);
