@@ -191,4 +191,27 @@ const Actions={
     const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`financas-${mk}.csv`;a.click();
     Utils.toast("CSV exportado ✓");
   },
-};
+openParcelarDivida(dividaId){
+    const dv=Store.data.dividas.find(d=>d.id===dividaId);if(!dv)return;
+    this.open(`Parcelar dívida — ${dv.nome}`,`
+      <div style="background:var(--color-surface-alt);border-radius:var(--radius-sm);padding:12px;margin-bottom:4px;">
+        <div style="font-size:12px;color:var(--color-text-muted);">Valor restante da dívida</div>
+        <div style="font-size:22px;font-weight:700;color:var(--color-negative);">${Utils.brl(dv.valorRestante)}</div>
+        <div style="font-size:12px;color:var(--color-text-muted);margin-top:4px;">Origem: ${Utils.escapeHtml(dv.credor||dv.nome)}</div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Número de parcelas</label><input name="qtdTotal" type="number" min="1" required autofocus placeholder="Ex: 12"></div>
+        <div class="field"><label>Valor por parcela (R$)</label>
+          <input name="valorParcela" type="number" step="0.01" required placeholder="Ex: 200"
+            value="${dv.valorRestante>0?(dv.valorRestante/12).toFixed(2):""}">
+        </div>
+      </div>
+      <div class="field"><label>Mês da 1ª parcela</label><input name="mesInicio" type="month" value="${Utils.currentMonthKey()}"></div>
+      <div class="field"><label>Observações</label><textarea name="obs" rows="2" placeholder="Ex: Acordo com banco, desconto obtido..."></textarea></div>
+      <div style="background:var(--color-accent-soft);border-radius:var(--radius-sm);padding:10px;font-size:13px;color:var(--color-accent);">
+        💡 Um parcelamento será criado automaticamente e aparecerá em "Parcelamentos" a cada mês.
+      </div>
+    `,fd=>{
+      Actions.parcelarDivida(dividaId,Object.fromEntries(fd.entries()));Modals.closeAll();
+    });
+  },};
