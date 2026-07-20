@@ -1,11 +1,10 @@
 const Pages={
-
   render(page){
     const main=document.getElementById("main-content");main.innerHTML="";
     const map={
-      dashboard:this.dashboard,dividas:this.dividas,fixas:this.fixas,
-      parcelamentos:this.parcelamentosPage,despesas:this.despesas,receitas:this.receitas,
-      investimentos:this.investimentos,anotacoes:this.anotacoes,config:this.config,
+      dashboard:this.dashboard,despesas:this.despesas,fixas:this.fixas,
+      parcelamentos:this.parcelamentosPage,investimentos:this.investimentos,
+      receitas:this.receitas,dividas:this.dividas,anotacoes:this.anotacoes,config:this.config,
     };
     (map[page]||this.dashboard).call(this,main);
   },
@@ -46,8 +45,10 @@ const Pages={
   },
 
   // ═══ DASHBOARD ══════════════════════════════════════════════
+  // Removidos: comparativo com mês anterior, meta de economia
+  // Novo: "Falta pagar este mês" (fixas + parcelas em aberto)
   dashboard(main){
-    const mk=App.selectedMonth,mkPrev=Utils.prevMonthKey(mk),isNow=App.isCurrentMonth();
+    const mk=App.selectedMonth,isNow=App.isCurrentMonth();
     const despMes=Store.monthDespesas(mk),recMes=Store.monthReceitas(mk);
     const fixasMes=Store.monthFixedBills(mk),parcMes=Store.monthParcelamentos(mk);
     const invAtivos=Store.monthInvestimentos();
@@ -60,16 +61,12 @@ const Pages={
     const contasMes=totalFixas+totalParc+totalDesp+totalInv;
     const saldo=totalRec-contasMes;
 
-    // NOVO: "falta pagar este mês" = fixas não pagas + parcelas não marcadas
+    // Falta pagar: fixas não pagas + parcelas não marcadas do mês
     const fixasAbertas=fixasMes.filter(f=>!f.pago);
-    const totalFixasAbertas=Store.sum(fixasAbertas);
-    const totalParcAbertas=parcMes.filter(p=>!Store.isParcelamentoPago(p.id,mk))
+    const faltaFixas=Store.sum(fixasAbertas);
+    const faltaParc=parcMes.filter(p=>!Store.isParcelamentoPago(p.id,mk))
       .reduce((s,p)=>s+Number(p.valorParcela||0),0);
-    const faltaPagar=totalFixasAbertas+totalParcAbertas;
-
-    const metaEcon=Number(Store.data.configuracoes.metaEconomiaMensal)||0;
-    const totalPrev=Store.sum(Store.monthDespesas(mkPrev));
-    const delta=totalPrev?(((contasMes-totalPrev)/totalPrev)*100).toFixed(0):null;
+    const faltaPagar=faltaFixas+faltaParc;
 
     this.header(main,
       isNow?`Olá, ${App.currentUser.split(" ")[0]} 👋`:`📅 ${Utils.monthLabel(mk)}`,
@@ -88,31 +85,13 @@ const Pages={
       ${this.statCard("green","💰","Receitas",Utils.brl(totalRec))}
       ${this.statCard("amber","📋","Contas do mês",Utils.brl(contasMes),"Fixas + parcelas + despesas")}
       ${this.statCard("red","⏳","Falta pagar este mês",Utils.brl(faltaPagar),"Fixas e parcelas em aberto")}
-      ${totalInv>0?this.statCard("green","📈","Investimentos",Utils.brl(totalInv),"Aportes mensais"):""}
+      ${totalInv>0?this.statCard("green","📈","Investimentos",Utils.brl(totalInv),"Aportes mensais programados"):""}
     `;
     main.appendChild(grid);
 
-    const row2=document.createElement("div");row2.className="grid grid-2";row2.style.marginTop="16px";
-    const cComp=document.createElement("div");cComp.className="card";
-    cComp.innerHTML=`<h3>Comparativo — mês anterior</h3><div id="chart-comp"></div>
-      <div class="legend">
-        <div class="legend-item"><span class="legend-dot" style="background:var(--color-text-faint)"></span>${Utils.monthLabel(mkPrev)}</div>
-        <div class="legend-item"><span class="legend-dot" style="background:var(--color-accent)"></span>${Utils.monthLabel(mk)}</div>
-      </div>
-      <div class="delta ${delta===null?"":(Number(delta)>0?"down":"up")}" style="margin-top:10px;">
-        ${delta===null?"Sem dados anteriores":Number(delta)>0?`▲ ${delta}% a mais`:`▼ ${Math.abs(delta)}% a menos`}
-      </div>`;
-    row2.appendChild(cComp);
-    const pct=metaEcon>0?Math.min(100,(Math.max(0,saldo)/metaEcon)*100):0;
-    const cMeta=document.createElement("div");cMeta.className="card";
-    cMeta.innerHTML=`<h3>Meta de economia</h3>
-      <div class="big-number">${Utils.brl(Math.max(0,saldo))} <span style="font-size:14px;color:var(--color-text-muted);font-weight:500;">/ ${Utils.brl(metaEcon)}</span></div>
-      <div class="progress-track" style="margin-top:12px;"><div class="progress-fill green" style="width:${pct}%"></div></div>
-      <div class="row-sub" style="margin-top:8px;">${pct.toFixed(0)}% atingida</div>`;
-    row2.appendChild(cMeta);
-    main.appendChild(row2);
+    // Top gastos + Contas em aberto (sem botão "Pago")
+    const row=document.createElement("div");row.className="grid grid-2";row.style.marginTop="16px";
 
-    const row3=document.createElement("div");row3.className="grid grid-2";row3.style.marginTop="16px";
     const topItems=[...despMes,...fixasMes.filter(f=>f.pago),...parcMes.map(p=>({nome:p.nome,categoria:"Parcelamento",valor:p.valorParcela}))]
       .sort((a,b)=>(Number(b.valor)||0)-(Number(a.valor)||0)).slice(0,5);
     const cTop=document.createElement("div");cTop.className="card";
@@ -121,33 +100,55 @@ const Pages={
         <div class="row-main"><div class="row-title">${Utils.escapeHtml(g.nome)}</div><div class="row-sub">${Utils.escapeHtml(g.categoria||"—")}</div></div>
         <div class="row-amount neg">−${Utils.brl(g.valor)}</div>
       </div>`);
-    row3.appendChild(cTop);
+    row.appendChild(cTop);
 
-    // Alertas: apenas fixas não pagas do mês atual
+    // Contas em aberto — apenas lista, SEM botão Pago (paga na aba Contas Fixas)
     if(isNow){
-      const alertas=fixasAbertas.map(f=>({...f,dias:Utils.daysUntil(Number(f.diaVencimento))}))
-        .sort((a,b)=>a.dias-b.dias);
       const cAlert=document.createElement("div");cAlert.className="card";
-      cAlert.innerHTML=`<h3>Contas em aberto este mês</h3>`+this.listOrEmpty(alertas,f=>{
-        const badge=f.dias<0?`<span class="badge red">Atrasada (${Math.abs(f.dias)}d)</span>`:
-          f.dias===0?`<span class="badge red">Vence hoje</span>`:
-          f.dias===1?`<span class="badge amber">Amanhã</span>`:
-          f.dias<=3?`<span class="badge amber">Em ${f.dias}d</span>`:`<span class="badge gray">Em ${f.dias}d</span>`;
-        return`<div class="list-row">
-          <div class="row-main"><div class="row-title">${Utils.escapeHtml(f.nome)}</div><div class="row-sub">Dia ${f.diaVencimento} · ${Utils.brl(f.valor)}</div></div>
-          ${badge}
-          <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="Actions.payFixedBill('${f.id}')">✓ Pago</button>
-        </div>`;
-      },"🎉 Tudo pago neste mês!");
-      row3.appendChild(cAlert);
+      cAlert.innerHTML=`<h3>Contas em aberto este mês</h3>`+this.listOrEmpty(
+        fixasAbertas.map(f=>({...f,dias:Utils.daysUntilInMonth(Number(f.diaVencimento),f.mesReferencia)}))
+          .sort((a,b)=>a.dias-b.dias),
+        f=>{
+          const badge=f.dias<0?`<span class="badge red">Atrasada (${Math.abs(f.dias)}d)</span>`:
+            f.dias===0?`<span class="badge red">Vence hoje</span>`:
+            f.dias===1?`<span class="badge amber">Amanhã</span>`:
+            f.dias<=3?`<span class="badge amber">Em ${f.dias}d</span>`:`<span class="badge gray">Em ${f.dias}d</span>`;
+          const isInv=!!f.investimentoId;
+          return`<div class="list-row">
+            <div class="row-main">
+              <div class="row-title">${Utils.escapeHtml(f.nome)}${isInv?` <span class="badge green" style="font-size:10px;">Investimento</span>`:""}</div>
+              <div class="row-sub">Dia ${f.diaVencimento} · ${Utils.brl(f.valor)}</div>
+            </div>
+            ${badge}
+          </div>`;
+        },
+        "🎉 Tudo pago neste mês!"
+      );
+      row.appendChild(cAlert);
     }
-    main.appendChild(row3);
+    main.appendChild(row);
+  },
 
-    const wk=(list,mkRef)=>[0,0,0,0].map((_,w)=>Store.sum(list.filter(d=>Utils.monthKey(d.data)===mkRef&&Math.ceil(parseInt(d.data.slice(8,10),10)/7)===w+1)));
-    Charts.comparativeLine(document.getElementById("chart-comp"),wk(Store.data.despesas,mkPrev),wk(Store.data.despesas,mk),["S1","S2","S3","S4"]);
+  // ═══ DESPESAS ══════════════════════════════════════════════
+  despesas(main){
+    const mk=App.selectedMonth;
+    this.header(main,"Despesas Variáveis");this.monthSelector(main);
+    main.appendChild(this.actionsBar("+ Nova Despesa",()=>Modals.openDespesa()));
+    main.appendChild(this.searchAndFilters("despesas"));
+    const list=this.applyFilters(Store.monthDespesas(mk)).sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+    const card=document.createElement("div");card.className="card";
+    card.innerHTML=this.listOrEmpty(list,d=>`
+      <div class="list-row">
+        <div class="row-main"><div class="row-title">${Utils.escapeHtml(d.nome)}</div><div class="row-sub">${Utils.escapeHtml(d.categoria||"—")} · ${Utils.fmtDateFull(d.data)} · ${Utils.escapeHtml(d.formaPagamento||"—")}</div></div>
+        <div class="row-amount neg">−${Utils.brl(d.valor)}</div>
+        <button class="btn btn-sm btn-ghost" onclick="Modals.openDespesa('${d.id}')">✏️</button>
+        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('despesas','Despesas','${d.id}')">🗑️</button>
+      </div>`,"Nenhuma despesa neste mês.");
+    main.appendChild(card);
   },
 
   // ═══ CONTAS FIXAS ══════════════════════════════════════════
+  // Bug corrigido: usa daysUntilInMonth para calcular dias corretamente por mês
   fixas(main){
     const mk=App.selectedMonth;
     this.header(main,"Contas Fixas",`${Utils.monthLabel(mk)}`);
@@ -161,22 +162,164 @@ const Pages={
     const mkOpts=()=>{const o=[];for(let d=-3;d<=3;d++){const dt=new Date();dt.setDate(1);dt.setMonth(dt.getMonth()+d);const k=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;o.push(k);}return o;};
     const card=document.createElement("div");card.className="card";
     card.innerHTML=this.listOrEmpty(list,f=>{
-      const dias=Utils.daysUntil(Number(f.diaVencimento));
-      const badge=f.pago?`<span class="badge green">Pago</span>`:dias<0?`<span class="badge red">Atrasada</span>`:dias<=3?`<span class="badge amber">Em ${dias}d</span>`:`<span class="badge gray">Dia ${f.diaVencimento}</span>`;
+      // CORREÇÃO: usa daysUntilInMonth com o mesReferencia da conta
+      const dias=Utils.daysUntilInMonth(Number(f.diaVencimento),f.mesReferencia);
+      const badge=f.pago?`<span class="badge green">Pago</span>`:
+        dias<0?`<span class="badge red">Atrasada</span>`:
+        dias===0?`<span class="badge red">Vence hoje</span>`:
+        dias<=3?`<span class="badge amber">Em ${dias}d</span>`:`<span class="badge gray">Dia ${f.diaVencimento}</span>`;
+      const isInv=!!f.investimentoId;
       const opts=mkOpts().map(k=>`<option value="${k}" ${k===Store._normMk(f.mesReferencia)?"selected":""}>${Utils.monthLabel(k)}</option>`).join("");
       return`<div class="list-row" style="flex-wrap:wrap;gap:8px;">
         <div class="row-main" style="min-width:140px;">
-          <div class="row-title">${Utils.escapeHtml(f.nome)}</div>
+          <div class="row-title">${Utils.escapeHtml(f.nome)}${isInv?` <span class="badge green" style="font-size:10px;">Investimento</span>`:""}</div>
           <div class="row-sub">${Utils.escapeHtml(f.categoria||"—")} · dia ${f.diaVencimento}${f.pago?" · pago "+Utils.fmtDateShort(f.dataPagamento):""}</div>
         </div>
         ${badge}
         <div class="row-amount neg">${Utils.brl(f.valor)}</div>
         <button class="btn btn-sm ${f.pago?"btn-secondary":"btn-primary"}" onclick="Actions.payFixedBill('${f.id}')">${f.pago?"Desfazer":"✓ Pago"}</button>
-        <select class="month-move-select" title="Mover para outro mês" onchange="Actions.moveFixaToMonth('${f.id}',this.value)">${opts}</select>
-        <button class="btn btn-sm btn-ghost" onclick="Modals.openFixa('${f.id}')">✏️</button>
-        <button class="btn btn-sm btn-ghost" onclick="Actions.excluirContaFixa('${f.id}')">🗑️</button>
+        ${!isInv?`
+          <select class="month-move-select" title="Mover para outro mês" onchange="Actions.moveFixaToMonth('${f.id}',this.value)">${opts}</select>
+          <button class="btn btn-sm btn-ghost" onclick="Modals.openFixa('${f.id}')">✏️</button>
+          <button class="btn btn-sm btn-ghost" onclick="Actions.excluirContaFixa('${f.id}')">🗑️</button>
+        `:`<button class="btn btn-sm btn-ghost" onclick="Modals.openInvestimento('${f.investimentoId}')">⚙️</button>`}
       </div>`;
     },"Nenhuma conta fixa neste mês.");
+    main.appendChild(card);
+  },
+
+  // ═══ PARCELAMENTOS ══════════════════════════════════════════
+  // Novo: badge de "Atrasado" baseado em diaVencimento
+  parcelamentosPage(main){
+    const mk=App.selectedMonth;
+    this.header(main,"Parcelamentos",`Ativas em ${Utils.monthLabel(mk)}`);
+    this.monthSelector(main);
+    main.appendChild(this.actionsBar("+ Novo Parcelamento",()=>Modals.openParcelamento()));
+    const ativos=Store.monthParcelamentos(mk);
+    const totalMes=ativos.reduce((s,p)=>s+Number(p.valorParcela||0),0);
+    if(ativos.length){
+      const r=document.createElement("div");r.className="card";r.style.marginBottom="12px";
+      r.innerHTML=`<h3>Total em ${Utils.monthLabel(mk)}</h3><div class="big-number" style="color:var(--color-negative);">${Utils.brl(totalMes)}</div>`;
+      main.appendChild(r);
+    }
+    const card=document.createElement("div");card.className="card";
+    card.innerHTML=this.listOrEmpty(Store.data.parcelamentos,p=>{
+      const ativo=ativos.some(a=>a.id===p.id);
+      const num=ativo?Store.getInstallmentForMonth(p,mk):null;
+      const total=Number(p.qtdTotal)||1;
+      const pct=ativo?Math.min(100,(num/total)*100):Math.min(100,(Number(p.parcelaAtual)/total)*100);
+      const pago=ativo&&Store.isParcelamentoPago(p.id,mk);
+
+      // Badge com diaVencimento do parcelamento
+      let badge=`<span class="badge gray">Inativo</span>`;
+      if(ativo){
+        if(pago){
+          badge=`<span class="badge green">Pago</span>`;
+        } else {
+          const diaVenc=Number(p.diaVencimento||10);
+          const diasParc=Utils.daysUntilInMonth(diaVenc,mk);
+          badge=diasParc<0?`<span class="badge red">Atrasado (${Math.abs(diasParc)}d)</span>`:
+            diasParc===0?`<span class="badge red">Vence hoje</span>`:
+            diasParc<=3?`<span class="badge amber">Em ${diasParc}d</span>`:
+            `<span class="badge gray">${num}/${total}</span>`;
+        }
+      }
+
+      return`<div class="list-row" style="flex-wrap:wrap;gap:8px;${!ativo?"opacity:0.4;":""}">
+        <div class="row-main" style="min-width:160px;">
+          <div class="row-title">${Utils.escapeHtml(p.nome)} ${badge}</div>
+          <div class="row-sub">${ativo?`Parcela <strong>${num}</strong> de ${total} · termina ${Utils.fmtDateFull(p.dataFinal)}${p.diaVencimento?` · vence dia ${p.diaVencimento}`:""}`:`Termina ${Utils.fmtDateFull(p.dataFinal)}`}</div>
+          <div class="progress-track" style="margin-top:6px;max-width:200px;"><div class="progress-fill ${pago?"green":""}" style="width:${pct}%"></div></div>
+        </div>
+        <div class="row-amount neg">${Utils.brl(p.valorParcela)}/mês</div>
+        ${ativo?`<button class="btn btn-sm ${pago?"btn-secondary":"btn-primary"}" onclick="Actions.toggleParcelamentoPago('${p.id}')">${pago?"Desfazer":"✓ Pago"}</button>`:""}
+        <button class="btn btn-sm btn-ghost" onclick="Modals.openParcelamento('${p.id}')">✏️</button>
+        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('parcelamentos','Parcelamentos','${p.id}')">🗑️</button>
+      </div>`;
+    },"Nenhum parcelamento cadastrado.");
+    main.appendChild(card);
+  },
+
+  // ═══ INVESTIMENTOS ══════════════════════════════════════════
+  // Mostra status do aporte do mês atual
+  investimentos(main){
+    const mk=App.selectedMonth;
+    this.header(main,"Investimentos","Reservas, metas de poupança e patrimônio");
+    main.appendChild(this.actionsBar("+ Novo Investimento",()=>Modals.openInvestimento()));
+    const invs=Store.data.investimentos;
+    const totalGuardado=invs.reduce((s,i)=>s+Number(i.valorAtual||0),0);
+    const totalMeta=invs.reduce((s,i)=>s+Number(i.valorAlvo||0),0);
+    const totalAportes=Store.monthInvestimentos().reduce((s,i)=>s+Number(i.aportesMensal||0),0);
+    if(invs.length){
+      const r=document.createElement("div");r.className="grid grid-stats";r.style.marginBottom="20px";
+      r.innerHTML=`
+        ${this.statCard("green","📈","Total guardado",Utils.brl(totalGuardado))}
+        ${this.statCard("blue","🎯","Total das metas",Utils.brl(totalMeta))}
+        ${totalAportes>0?this.statCard("amber","💰","Aportes este mês",Utils.brl(totalAportes),"Comprometido em Contas Fixas"):""}
+      `;
+      main.appendChild(r);
+    }
+    if(!invs.length){
+      const c=document.createElement("div");c.className="card";
+      c.innerHTML=`<div class="empty-state"><div class="emoji">📈</div><p>Nenhum investimento cadastrado.</p></div>`;
+      main.appendChild(c);return;
+    }
+    const grid=document.createElement("div");grid.className="grid grid-2";
+    invs.forEach(inv=>{
+      const pct=Math.min(100,((Number(inv.valorAtual)||0)/(Number(inv.valorAlvo)||1))*100);
+      const falta=Math.max(0,Number(inv.valorAlvo)-Number(inv.valorAtual||0));
+      // Verifica status do aporte do mês selecionado
+      const fixaMes=Store.data.contasFixas.find(c=>c.investimentoId===inv.id&&Store._normMk(c.mesReferencia)===Store._normMk(mk));
+      const aportePago=fixaMes?.pago||false;
+      const aporte=Number(inv.aportesMensal||0);
+
+      const card=document.createElement("div");card.className="card";
+      card.innerHTML=`
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+          <div>
+            <h3 style="margin-bottom:4px;">${Utils.escapeHtml(inv.nome)}</h3>
+            ${inv.descricao?`<div class="row-sub">${Utils.escapeHtml(inv.descricao)}</div>`:""}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+            ${aporte>0?`<span class="badge ${aportePago?"green":"gray"}">${aportePago?"✓ Aporte pago":"Aporte pendente"}</span>`:""}
+            ${aporte>0?`<span style="font-size:11px;color:var(--color-text-muted);">${Utils.brl(aporte)}/mês</span>`:""}
+          </div>
+        </div>
+        <div style="margin:12px 0;">
+          <div class="big-number" style="color:var(--color-positive);">${Utils.brl(inv.valorAtual||0)}</div>
+          <div class="row-sub">de ${Utils.brl(inv.valorAlvo)} · faltam ${Utils.brl(falta)}</div>
+        </div>
+        <div class="progress-track"><div class="progress-fill green" style="width:${pct}%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-muted);margin-top:4px;">
+          <span>${pct.toFixed(0)}% concluído</span>
+          ${inv.dataLimite?`<span>até ${Utils.fmtDateFull(inv.dataLimite)}</span>`:""}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+          ${aporte>0&&fixaMes&&!aportePago?`<button class="btn btn-sm btn-primary" onclick="Actions.payFixedBill('${fixaMes.id}')">✓ Registrar aporte ${Utils.monthLabel(mk)}</button>`:""}
+          ${aporte>0&&aportePago?`<button class="btn btn-sm btn-secondary" onclick="Actions.payFixedBill('${fixaMes.id}')">Desfazer aporte</button>`:""}
+          <button class="btn btn-sm btn-secondary" onclick="Modals.openAporteInvestimento('${inv.id}')">+ Aporte avulso</button>
+          <button class="btn btn-sm btn-ghost" onclick="Modals.openInvestimento('${inv.id}')">✏️ Editar</button>
+          <button class="btn btn-sm btn-ghost" onclick="Actions.remove('investimentos','Investimentos','${inv.id}')">🗑️</button>
+        </div>`;
+      grid.appendChild(card);
+    });
+    main.appendChild(grid);
+  },
+
+  // ═══ RECEITAS ══════════════════════════════════════════════
+  receitas(main){
+    const mk=App.selectedMonth;
+    this.header(main,"Receitas");this.monthSelector(main);
+    main.appendChild(this.actionsBar("+ Nova Receita",()=>Modals.openReceita()));
+    const list=[...Store.monthReceitas(mk)].sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+    const card=document.createElement("div");card.className="card";
+    card.innerHTML=this.listOrEmpty(list,r=>`
+      <div class="list-row">
+        <div class="row-main"><div class="row-title">${Utils.escapeHtml(r.nome)}</div><div class="row-sub">${Utils.escapeHtml(r.categoria||"—")} · ${Utils.fmtDateFull(r.data)}</div></div>
+        <div class="row-amount pos">+${Utils.brl(r.valor)}</div>
+        <button class="btn btn-sm btn-ghost" onclick="Modals.openReceita('${r.id}')">✏️</button>
+        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('receitas','Receitas','${r.id}')">🗑️</button>
+      </div>`,"Nenhuma receita neste mês.");
     main.appendChild(card);
   },
 
@@ -238,8 +381,7 @@ const Pages={
       <div class="debt-card-header">
         <div><div class="debt-card-name">${Utils.escapeHtml(d.nome)}</div>${d.credor?`<div class="debt-card-credor">${Utils.escapeHtml(d.credor)}</div>`:""}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <span class="badge ${sCls}">${sLabel}</span>
-          <span class="badge ${pCls}">${pLabel}</span>
+          <span class="badge ${sCls}">${sLabel}</span><span class="badge ${pCls}">${pLabel}</span>
         </div>
       </div>
       <div class="debt-card-values">
@@ -266,122 +408,6 @@ const Pages={
         <button class="btn btn-sm btn-ghost" onclick="Actions.excluirDivida('${d.id}')">🗑️ Excluir</button>
       </div>`}
     </div>`;
-  },
-
-  // ═══ PARCELAMENTOS ══════════════════════════════════════════
-  parcelamentosPage(main){
-    const mk=App.selectedMonth;
-    this.header(main,"Parcelamentos",`Ativas em ${Utils.monthLabel(mk)}`);
-    this.monthSelector(main);
-    main.appendChild(this.actionsBar("+ Novo Parcelamento",()=>Modals.openParcelamento()));
-    const ativos=Store.monthParcelamentos(mk);
-    const totalMes=ativos.reduce((s,p)=>s+Number(p.valorParcela||0),0);
-    if(ativos.length){const r=document.createElement("div");r.className="card";r.style.marginBottom="12px";r.innerHTML=`<h3>Total em ${Utils.monthLabel(mk)}</h3><div class="big-number" style="color:var(--color-negative);">${Utils.brl(totalMes)}</div>`;main.appendChild(r);}
-    const card=document.createElement("div");card.className="card";
-    card.innerHTML=this.listOrEmpty(Store.data.parcelamentos,p=>{
-      const ativo=ativos.some(a=>a.id===p.id);
-      const num=ativo?Store.getInstallmentForMonth(p,mk):null;
-      const total=Number(p.qtdTotal)||1;
-      const pct=ativo?Math.min(100,(num/total)*100):Math.min(100,(Number(p.parcelaAtual)/total)*100);
-      const pago=ativo&&Store.isParcelamentoPago(p.id,mk);
-      return`<div class="list-row" style="flex-wrap:wrap;gap:8px;${!ativo?"opacity:0.4;":""}">
-        <div class="row-main" style="min-width:160px;">
-          <div class="row-title">${Utils.escapeHtml(p.nome)} ${ativo?`<span class="badge ${pago?"green":"gray"}">${pago?"Pago":`${num}/${total}`}</span>`:`<span class="badge gray">Inativo</span>`}</div>
-          <div class="row-sub">${ativo?`Parcela <strong>${num}</strong> de ${total} · termina ${Utils.fmtDateFull(p.dataFinal)}`:`Termina ${Utils.fmtDateFull(p.dataFinal)}`}</div>
-          <div class="progress-track" style="margin-top:6px;max-width:200px;"><div class="progress-fill ${pago?"green":""}" style="width:${pct}%"></div></div>
-        </div>
-        <div class="row-amount neg">${Utils.brl(p.valorParcela)}/mês</div>
-        ${ativo?`<button class="btn btn-sm ${pago?"btn-secondary":"btn-primary"}" onclick="Actions.toggleParcelamentoPago('${p.id}')">${pago?"Desfazer":"✓ Pago"}</button>`:""}
-        <button class="btn btn-sm btn-ghost" onclick="Modals.openParcelamento('${p.id}')">✏️</button>
-        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('parcelamentos','Parcelamentos','${p.id}')">🗑️</button>
-      </div>`;
-    },"Nenhum parcelamento cadastrado.");
-    main.appendChild(card);
-  },
-
-  // ═══ DESPESAS ══════════════════════════════════════════════
-  despesas(main){
-    const mk=App.selectedMonth;
-    this.header(main,"Despesas Variáveis");this.monthSelector(main);
-    main.appendChild(this.actionsBar("+ Nova Despesa",()=>Modals.openDespesa()));
-    main.appendChild(this.searchAndFilters("despesas"));
-    const list=this.applyFilters(Store.monthDespesas(mk)).sort((a,b)=>(b.data||"").localeCompare(a.data||""));
-    const card=document.createElement("div");card.className="card";
-    card.innerHTML=this.listOrEmpty(list,d=>`
-      <div class="list-row">
-        <div class="row-main"><div class="row-title">${Utils.escapeHtml(d.nome)}</div><div class="row-sub">${Utils.escapeHtml(d.categoria||"—")} · ${Utils.fmtDateFull(d.data)} · ${Utils.escapeHtml(d.formaPagamento||"—")}</div></div>
-        <div class="row-amount neg">−${Utils.brl(d.valor)}</div>
-        <button class="btn btn-sm btn-ghost" onclick="Modals.openDespesa('${d.id}')">✏️</button>
-        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('despesas','Despesas','${d.id}')">🗑️</button>
-      </div>`,"Nenhuma despesa neste mês.");
-    main.appendChild(card);
-  },
-
-  // ═══ RECEITAS ══════════════════════════════════════════════
-  receitas(main){
-    const mk=App.selectedMonth;
-    this.header(main,"Receitas");this.monthSelector(main);
-    main.appendChild(this.actionsBar("+ Nova Receita",()=>Modals.openReceita()));
-    const list=[...Store.monthReceitas(mk)].sort((a,b)=>(b.data||"").localeCompare(a.data||""));
-    const card=document.createElement("div");card.className="card";
-    card.innerHTML=this.listOrEmpty(list,r=>`
-      <div class="list-row">
-        <div class="row-main"><div class="row-title">${Utils.escapeHtml(r.nome)}</div><div class="row-sub">${Utils.escapeHtml(r.categoria||"—")} · ${Utils.fmtDateFull(r.data)}</div></div>
-        <div class="row-amount pos">+${Utils.brl(r.valor)}</div>
-        <button class="btn btn-sm btn-ghost" onclick="Modals.openReceita('${r.id}')">✏️</button>
-        <button class="btn btn-sm btn-ghost" onclick="Actions.remove('receitas','Receitas','${r.id}')">🗑️</button>
-      </div>`,"Nenhuma receita neste mês.");
-    main.appendChild(card);
-  },
-
-  // ═══ INVESTIMENTOS ══════════════════════════════════════════
-  investimentos(main){
-    this.header(main,"Investimentos","Reservas, metas de poupança e patrimônio");
-    main.appendChild(this.actionsBar("+ Novo Investimento",()=>Modals.openInvestimento()));
-    const invs=Store.data.investimentos;
-    const totalGuardado=invs.reduce((s,i)=>s+Number(i.valorAtual||0),0);
-    const totalMeta=invs.reduce((s,i)=>s+Number(i.valorAlvo||0),0);
-    const totalAportes=Store.monthInvestimentos().reduce((s,i)=>s+Number(i.aportesMensal||0),0);
-    if(invs.length){
-      const r=document.createElement("div");r.className="grid grid-stats";r.style.marginBottom="20px";
-      r.innerHTML=`
-        ${this.statCard("green","📈","Total guardado",Utils.brl(totalGuardado))}
-        ${this.statCard("blue","🎯","Total das metas",Utils.brl(totalMeta))}
-        ${totalAportes>0?this.statCard("amber","💰","Aportes este mês",Utils.brl(totalAportes)):""}
-      `;
-      main.appendChild(r);
-    }
-    if(!invs.length){
-      const card=document.createElement("div");card.className="card";
-      card.innerHTML=`<div class="empty-state"><div class="emoji">📈</div><p>Nenhum investimento cadastrado.</p></div>`;
-      main.appendChild(card);return;
-    }
-    const grid=document.createElement("div");grid.className="grid grid-2";
-    invs.forEach(inv=>{
-      const pct=Math.min(100,((Number(inv.valorAtual)||0)/(Number(inv.valorAlvo)||1))*100);
-      const falta=Math.max(0,Number(inv.valorAlvo)-Number(inv.valorAtual||0));
-      const card=document.createElement("div");card.className="card";
-      card.innerHTML=`
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
-          <div><h3 style="margin-bottom:4px;">${Utils.escapeHtml(inv.nome)}</h3>${inv.descricao?`<div class="row-sub">${Utils.escapeHtml(inv.descricao)}</div>`:""}</div>
-          ${Number(inv.aportesMensal||0)>0?`<span class="badge green">+${Utils.brl(inv.aportesMensal)}/mês</span>`:""}
-        </div>
-        <div style="margin:12px 0;">
-          <div class="big-number" style="color:var(--color-positive);">${Utils.brl(inv.valorAtual||0)}</div>
-          <div class="row-sub">de ${Utils.brl(inv.valorAlvo)} · faltam ${Utils.brl(falta)}</div>
-        </div>
-        <div class="progress-track"><div class="progress-fill green" style="width:${pct}%"></div></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-muted);margin-top:4px;">
-          <span>${pct.toFixed(0)}% concluído</span>${inv.dataLimite?`<span>até ${Utils.fmtDateFull(inv.dataLimite)}</span>`:""}
-        </div>
-        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
-          <button class="btn btn-sm btn-primary" onclick="Modals.openAporteInvestimento('${inv.id}')">+ Registrar aporte</button>
-          <button class="btn btn-sm btn-secondary" onclick="Modals.openInvestimento('${inv.id}')">✏️ Editar</button>
-          <button class="btn btn-sm btn-ghost" onclick="Actions.remove('investimentos','Investimentos','${inv.id}')">🗑️</button>
-        </div>`;
-      grid.appendChild(card);
-    });
-    main.appendChild(grid);
   },
 
   // ═══ ANOTAÇÕES ══════════════════════════════════════════════
@@ -414,20 +440,28 @@ const Pages={
   config(main){
     this.header(main,"Configurações");
     const row=document.createElement("div");row.className="grid grid-2";
+    const temaAtual=document.documentElement.getAttribute("data-theme")||"light";
 
     const c1=document.createElement("div");c1.className="card";
-    const temaAtual=document.documentElement.getAttribute("data-theme")||"light";
     c1.innerHTML=`<h3>Sistema</h3>
-      <div class="field" style="margin-top:8px;"><label>Meta de economia mensal (R$)</label><input type="number" id="cfg-meta" value="${Store.data.configuracoes.metaEconomiaMensal||0}"></div>
-      <div class="field" style="margin-top:12px;">
+      <div class="field" style="margin-top:8px;">
         <label>Mês de início do sistema</label>
         <input type="month" id="cfg-inicio" value="${Store.data.configuracoes.dataInicioSistema||"2026-08"}">
+        <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px;">Contas antes desta data não geram dívidas automáticas</div>
       </div>
       <button class="btn btn-primary btn-sm" style="margin-top:16px;" onclick="Actions.saveConfig()">Salvar</button>
+
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border);">
+        <div style="font-size:12.5px;font-weight:600;color:var(--color-text-muted);margin-bottom:10px;">SINCRONIZAÇÃO</div>
+        <button class="btn btn-secondary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="Actions.syncSheets()">
+          🔄 Sincronizar com Google Sheets
+        </button>
+        <div style="font-size:11px;color:var(--color-text-muted);">Use quando os dados estiverem desatualizados entre dispositivos.</div>
+      </div>
+
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--color-border);">
         <div style="font-size:12.5px;font-weight:600;color:var(--color-text-muted);margin-bottom:10px;">APARÊNCIA</div>
-        <button class="btn btn-secondary" id="cfg-theme-btn" onclick="Actions.toggleTheme(this)"
-          style="width:100%;justify-content:center;">
+        <button class="btn btn-secondary" onclick="Actions.toggleTheme(this)" style="width:100%;justify-content:center;">
           ${temaAtual==="dark"?"☀️ Mudar para tema claro":"🌙 Mudar para tema escuro"}
         </button>
       </div>`;
@@ -450,8 +484,8 @@ const Pages={
 
     const c4=document.createElement("div");c4.className="card";
     c4.innerHTML=`<h3>Exportar dados</h3>
-      <p class="row-sub" style="margin-bottom:12px;">Exporta o mês selecionado em CSV (abre no Excel).</p>
-      <button class="btn btn-secondary btn-sm" onclick="Actions.exportCSV()">⬇ Exportar CSV do mês</button>`;
+      <p class="row-sub" style="margin-bottom:12px;">Exporta o mês atual em CSV (abre no Excel).</p>
+      <button class="btn btn-secondary btn-sm" onclick="Actions.exportCSV()">⬇ Exportar CSV</button>`;
     row.appendChild(c4);
 
     main.appendChild(row);
