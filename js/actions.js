@@ -15,6 +15,7 @@ const Actions={
 
   excluirContaFixa(id){
     const item=Store.data.contasFixas.find(c=>c.id===id);if(!item)return;
+    if(item.investimentoId){Utils.toast("Para parar aportes, edite o investimento e mude o aporte mensal para 0");return;}
     if(!confirm(`Excluir "${item.nome}" deste mês em diante?\nMeses já pagos permanecem.`))return;
     Store.excluirContaFixa(id);
     Utils.toast("Excluída deste mês em diante ✓");
@@ -35,17 +36,34 @@ const Actions={
   payFixedBill(id){
     const item=Store.data.contasFixas.find(c=>c.id===id);if(!item)return;
     const pago=!item.pago;
-    Store.update("contasFixas","ContasFixas",id,{pago,dataPagamento:pago?Utils.todayISO():"",horaPagamento:pago?new Date().toLocaleTimeString("pt-BR"):""});
-    const dv=Store.data.dividas.find(d=>d.contaFixaId===id&&d.status!=="quitada");
-    if(dv){
-      if(pago){Store.update("dividas","Dividas",dv.id,{status:"quitada",valorPago:dv.valorOriginal,valorRestante:0});Store.addHistoricoDivida(dv.id,"quitada","Conta paga",dv.valorOriginal);}
-      else Store.update("dividas","Dividas",dv.id,{status:"em_atraso",valorPago:0,valorRestante:dv.valorOriginal});
+    Store.update("contasFixas","ContasFixas",id,{
+      pago,
+      dataPagamento:pago?Utils.todayISO():"",
+      horaPagamento:pago?new Date().toLocaleTimeString("pt-BR"):"",
+    });
+
+    // Se for aporte de investimento → atualiza valorAtual do investimento
+    if(item.investimentoId){
+      const inv=Store.data.investimentos.find(i=>i.id===item.investimentoId);
+      if(inv){
+        const delta=pago?Number(item.valor||0):-Number(item.valor||0);
+        Store.update("investimentos","Investimentos",inv.id,{
+          valorAtual:Math.max(0,(Number(inv.valorAtual)||0)+delta)
+        });
+        Utils.toast(pago?`Aporte ${Utils.brl(item.valor)} registrado em ${inv.nome} ✓`:"Aporte desfeito");
+      }
+    } else {
+      const dv=Store.data.dividas.find(d=>d.contaFixaId===id&&d.status!=="quitada");
+      if(dv){
+        if(pago){Store.update("dividas","Dividas",dv.id,{status:"quitada",valorPago:dv.valorOriginal,valorRestante:0});Store.addHistoricoDivida(dv.id,"quitada","Conta paga",dv.valorOriginal);}
+        else Store.update("dividas","Dividas",dv.id,{status:"em_atraso",valorPago:0,valorRestante:dv.valorOriginal});
+      }
+      Utils.toast(pago?"Pago ✓":"Pagamento desfeito");
     }
-    Utils.toast(pago?"Pago ✓":"Pagamento desfeito");
     Pages.render(App.currentPage);
   },
 
-  // ═══ PARCELAMENTOS ═══════════════════════════════════════
+  // ═══ PARCELAMENTOS ════════════════════════════════════════
 
   toggleParcelamentoPago(id){
     const pago=Store.toggleParcelamentoPago(id,App.selectedMonth);
@@ -53,7 +71,7 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
-  // ═══ DÍVIDAS ═════════════════════════════════════════════
+  // ═══ DÍVIDAS ══════════════════════════════════════════════
 
   registrarPagamentoDivida(dividaId,valor,data,obs){
     const dv=Store.data.dividas.find(d=>d.id===dividaId);if(!dv)return;
@@ -83,24 +101,21 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
-  // Parcelar dívida: cria um Parcelamento automático + atualiza dívida
   parcelarDivida(dividaId,dados){
     const dv=Store.data.dividas.find(d=>d.id===dividaId);if(!dv)return;
     const qtd=Number(dados.qtdTotal)||1;
     const valor=Number(dados.valorParcela)||0;
     const mesInicio=dados.mesInicio||Utils.currentMonthKey();
-    // Calcula data final
-    const [y,m]=mesInicio.split("-").map(Number);
+    const[y,m]=mesInicio.split("-").map(Number);
     const endDate=new Date(y,m-1+qtd-1,1);
     const dataFinal=`${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,"0")}-28`;
-    // Cria parcelamento
     Store.add("parcelamentos","Parcelamentos",{
-      nome:dv.nome,valorParcela:valor,qtdTotal:qtd,
-      parcelaAtual:1,valorRestante:(qtd-1)*valor,dataFinal,
+      nome:dv.nome,valorParcela:valor,qtdTotal:qtd,parcelaAtual:1,
+      valorRestante:(qtd-1)*valor,dataFinal,
+      diaVencimento:Number(dados.diaVencimento)||10,
     });
-    // Atualiza dívida
     Store.update("dividas","Dividas",dividaId,{status:"parcelada"});
-    Store.addHistoricoDivida(dividaId,"negociacao",`Parcelada em ${qtd}x de ${Utils.brl(valor)} a partir de ${Utils.monthLabel(mesInicio)}`,valor*qtd);
+    Store.addHistoricoDivida(dividaId,"negociacao",`Parcelada em ${qtd}x de ${Utils.brl(valor)}`,valor*qtd);
     Utils.toast(`Parcelamento criado: ${qtd}x de ${Utils.brl(valor)} ✓`);
     Pages.render(App.currentPage);
   },
@@ -114,20 +129,17 @@ const Actions={
     Utils.toast("Dívida quitada ✓");Pages.render(App.currentPage);
   },
 
-  // Excluir dívida com confirmação
   excluirDivida(id){
     const dv=Store.data.dividas.find(d=>d.id===id);if(!dv)return;
-    if(!confirm(`Excluir a dívida "${dv.nome}"?\nTodo o histórico de pagamentos será removido. Esta ação não pode ser desfeita.`))return;
-    // Remove pagamentos e histórico vinculados
+    if(!confirm(`Excluir a dívida "${dv.nome}"?\nHistórico de pagamentos também será removido.`))return;
     Store.data.pagamentosDividas=Store.data.pagamentosDividas.filter(p=>p.dividaId!==id);
     Store.data.historicoDividas=Store.data.historicoDividas.filter(h=>h.dividaId!==id);
     Store.data.negociacoesDividas=Store.data.negociacoesDividas.filter(n=>n.dividaId!==id);
     Store.remove("dividas","Dividas",id);
-    Utils.toast("Dívida excluída");
-    Pages.render(App.currentPage);
+    Utils.toast("Dívida excluída");Pages.render(App.currentPage);
   },
 
-  // ═══ INVESTIMENTOS ═══════════════════════════════════════
+  // ═══ INVESTIMENTOS ════════════════════════════════════════
 
   registrarAporteInvestimento(id,valor){
     const inv=Store.data.investimentos.find(i=>i.id===id);if(!inv)return;
@@ -136,17 +148,50 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
-  // ═══ TEMA ════════════════════════════════════════════════
+  // ═══ SINCRONIZAÇÃO ════════════════════════════════════════
+
+  async syncSheets(){
+    if(!API.isConfigured()){Utils.toast("Google Sheets não configurado em config.js");return;}
+    Utils.toast("Sincronizando com Google Sheets...");
+    await Store.flushQueue(); // envia pendências primeiro
+    const remote=await API.getAll();
+    if(remote){
+      const inv=remote.investimentos||remote.metas||[];
+      Store.data={
+        receitas:          Store._merge(remote.receitas,                           Store.data.receitas),
+        despesas:          Store._merge(remote.despesas,                           Store.data.despesas),
+        contasFixas:       Store._merge(Store._normalizeFixas(remote.contasFixas), Store.data.contasFixas),
+        parcelamentos:     Store._merge(remote.parcelamentos,                      Store.data.parcelamentos),
+        categorias:        remote.categorias?.length?remote.categorias:Store.data.categorias,
+        investimentos:     Store._merge(inv,                                       Store.data.investimentos),
+        configuracoes:     remote.configuracoes||Store.data.configuracoes,
+        logs:              Store._merge(remote.logs,                               Store.data.logs),
+        dividas:           Store._merge(remote.dividas,                            Store.data.dividas),
+        pagamentosDividas: Store._merge(remote.pagamentosDividas,                  Store.data.pagamentosDividas),
+        negociacoesDividas:Store._merge(remote.negociacoesDividas,                 Store.data.negociacoesDividas),
+        historicoDividas:  Store._merge(remote.historicoDividas,                   Store.data.historicoDividas),
+        notas:             Store._merge(remote.notas,                              Store.data.notas),
+      };
+      Store.saveLocal();
+      Store.ensureFixedBillsForMonth(App.selectedMonth);
+      Utils.toast("Sincronizado com sucesso ✓");
+    }else{
+      Utils.toast("Erro: não foi possível conectar ao Google Sheets");
+    }
+    Pages.render(App.currentPage);
+  },
+
+  // ═══ TEMA ═════════════════════════════════════════════════
 
   toggleTheme(btn){
     const cur=document.documentElement.getAttribute("data-theme");
     const next=cur==="dark"?"light":"dark";
     document.documentElement.setAttribute("data-theme",next);
     localStorage.setItem(LS_THEME,next);
-    if(btn)btn.textContent=next==="dark"?"☀️ Mudar para tema claro":"🌙 Mudar para tema escuro";
+    if(btn)btn.textContent=next==="dark"?"☀️ Tema claro":"🌙 Tema escuro";
   },
 
-  // ═══ NOTAS ═══════════════════════════════════════════════
+  // ═══ NOTAS ════════════════════════════════════════════════
 
   saveNota(dados){
     const existe=dados.id?Store.data.notas.find(n=>n.id===dados.id):null;
@@ -159,7 +204,7 @@ const Actions={
     Store.remove("notas","Notas",id);Utils.toast("Nota removida");Pages.render(App.currentPage);
   },
 
-  // ═══ GENÉRICO ════════════════════════════════════════════
+  // ═══ GENÉRICO ═════════════════════════════════════════════
 
   remove(col,sheet,id){
     if(!confirm("Excluir este registro?"))return;
@@ -173,10 +218,9 @@ const Actions={
     input.value="";Pages.renderCategoryChips();Utils.toast("Adicionada ✓");
   },
   saveConfig(){
-    const meta=Number(document.getElementById("cfg-meta")?.value)||0;
     const inicio=document.getElementById("cfg-inicio")?.value||"2026-08";
-    Store.data.configuracoes.metaEconomiaMensal=meta;Store.data.configuracoes.dataInicioSistema=inicio;
-    Store.saveLocal();Store.queueChange("Configuracoes","update",{metaEconomiaMensal:meta,dataInicioSistema:inicio});
+    Store.data.configuracoes.dataInicioSistema=inicio;
+    Store.saveLocal();Store.queueChange("Configuracoes","update",{dataInicioSistema:inicio});
     Utils.toast("Configurações salvas ✓");
   },
   exportCSV(){
@@ -191,27 +235,4 @@ const Actions={
     const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`financas-${mk}.csv`;a.click();
     Utils.toast("CSV exportado ✓");
   },
-openParcelarDivida(dividaId){
-    const dv=Store.data.dividas.find(d=>d.id===dividaId);if(!dv)return;
-    this.open(`Parcelar dívida — ${dv.nome}`,`
-      <div style="background:var(--color-surface-alt);border-radius:var(--radius-sm);padding:12px;margin-bottom:4px;">
-        <div style="font-size:12px;color:var(--color-text-muted);">Valor restante da dívida</div>
-        <div style="font-size:22px;font-weight:700;color:var(--color-negative);">${Utils.brl(dv.valorRestante)}</div>
-        <div style="font-size:12px;color:var(--color-text-muted);margin-top:4px;">Origem: ${Utils.escapeHtml(dv.credor||dv.nome)}</div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label>Número de parcelas</label><input name="qtdTotal" type="number" min="1" required autofocus placeholder="Ex: 12"></div>
-        <div class="field"><label>Valor por parcela (R$)</label>
-          <input name="valorParcela" type="number" step="0.01" required placeholder="Ex: 200"
-            value="${dv.valorRestante>0?(dv.valorRestante/12).toFixed(2):""}">
-        </div>
-      </div>
-      <div class="field"><label>Mês da 1ª parcela</label><input name="mesInicio" type="month" value="${Utils.currentMonthKey()}"></div>
-      <div class="field"><label>Observações</label><textarea name="obs" rows="2" placeholder="Ex: Acordo com banco, desconto obtido..."></textarea></div>
-      <div style="background:var(--color-accent-soft);border-radius:var(--radius-sm);padding:10px;font-size:13px;color:var(--color-accent);">
-        💡 Um parcelamento será criado automaticamente e aparecerá em "Parcelamentos" a cada mês.
-      </div>
-    `,fd=>{
-      Actions.parcelarDivida(dividaId,Object.fromEntries(fd.entries()));Modals.closeAll();
-    });
-  },};
+};
