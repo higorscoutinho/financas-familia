@@ -27,7 +27,10 @@ const Store={
 
   _normalizeFixas(arr){
     if(!Array.isArray(arr))return[];
-    return arr.map(c=>c?{...c,mesReferencia:this._normMk(c.mesReferencia)}:c);
+    // Remove qualquer fixa gerada automaticamente por investimento (limpeza de segurança)
+    return arr
+      .filter(c=>!c||!c.investimentoId)
+      .map(c=>c?{...c,mesReferencia:this._normMk(c.mesReferencia)}:c);
   },
 
   loadLocal(){
@@ -81,7 +84,8 @@ const Store={
     this.ensureFixedBillsForMonth(Utils.currentMonthKey());
   },
 
-  // ═══ CONTAS FIXAS RECORRENTES + INVESTIMENTOS ════════════════
+  // ═══ CONTAS FIXAS RECORRENTES ════════════════════════════════
+  // Investimentos NÃO geram fixas automáticas — apenas repetem as fixas manuais
 
   criarContaFixa(dados){
     const grupoId=Utils.uid("grp");
@@ -101,11 +105,10 @@ const Store={
 
   ensureFixedBillsForMonth(mk){
     mk=this._normMk(mk);
-
-    // 1. Fixas recorrentes por grupoId (excluindo as geradas por investimentos)
     const grupos={};
     this.data.contasFixas.forEach(c=>{
-      if(!c.grupoId||c.investimentoId)return; // pula as de investimento
+      // Ignora qualquer fixa com investimentoId (resíduo de versão anterior)
+      if(!c.grupoId||c.investimentoId)return;
       const ref=this._normMk(c.mesReferencia);
       if(!grupos[c.grupoId])grupos[c.grupoId]=[];
       grupos[c.grupoId].push({...c,mesReferencia:ref});
@@ -124,37 +127,12 @@ const Store={
       this.queueChange("ContasFixas","create",novo);
       criou=true;
     });
-
-    // 2. Investimentos com aportesMensal → gera conta fixa automática por mês
-    this.data.investimentos.forEach(inv=>{
-      if(inv.ativo===false)return;
-      const aporte=Number(inv.aportesMensal||0);
-      if(aporte<=0)return;
-      const grupoId=`inv_${inv.id}`;
-      const jaExiste=this.data.contasFixas.some(c=>c.grupoId===grupoId&&this._normMk(c.mesReferencia)===mk);
-      if(jaExiste)return;
-      const nova={
-        id:Utils.uid("fix"),grupoId,
-        investimentoId:inv.id,
-        nome:inv.nome,
-        categoria:"Investimentos",
-        valor:aporte,
-        diaVencimento:Number(inv.diaAporte||10),
-        mesReferencia:mk,
-        pago:false,dataPagamento:"",horaPagamento:"",
-        criadoPor:"Sistema",
-      };
-      this.data.contasFixas.push(nova);
-      this.queueChange("ContasFixas","create",nova);
-      criou=true;
-    });
-
     if(criou)this.saveLocal();
   },
 
   editarContaFixa(id,patch){
     const base=this.data.contasFixas.find(c=>c.id===id);
-    if(!base||base.investimentoId)return; // não edita fixas geradas por investimento
+    if(!base||base.investimentoId)return;
     const grupoId=base.grupoId;
     const mk=this._normMk(base.mesReferencia);
     this.data.contasFixas.forEach((c,i)=>{
@@ -171,14 +149,11 @@ const Store={
 
   excluirContaFixa(id){
     const base=this.data.contasFixas.find(c=>c.id===id);
-    if(!base)return;
-    if(base.investimentoId){
-      Utils.toast("Para parar aportes, edite o investimento e mude o aporte mensal para 0");
-      return;
-    }
+    if(!base||base.investimentoId)return;
     const grupoId=base.grupoId;
     const mk=this._normMk(base.mesReferencia);
-    this.data.contasFixas.filter(c=>c.grupoId===grupoId&&this._normMk(c.mesReferencia)>=mk)
+    this.data.contasFixas
+      .filter(c=>c.grupoId===grupoId&&this._normMk(c.mesReferencia)>=mk)
       .forEach(c=>this.queueChange("ContasFixas","delete",{id:c.id}));
     this.data.contasFixas=this.data.contasFixas.filter(
       c=>!(c.grupoId===grupoId&&this._normMk(c.mesReferencia)>=mk)
@@ -252,72 +227,4 @@ const Store={
   // ═══ FILA ════════════════════════════════════════════════════
 
   queueChange(sheet,op,data){
-    const user=typeof App!=="undefined"?App.currentUser:"Sistema";
-    this.queue.push({sheet,op,data,user,ts:Date.now()});
-    this.saveLocal();this.flushQueue();
-  },
-  async flushQueue(){
-    if(this.syncing||!API.isConfigured()||!this.queue.length)return;
-    this.syncing=true;
-    while(this.queue.length){
-      const item=this.queue[0];
-      const res=await API.send(item.sheet,item.op,item.data,item.user);
-      if(!res||res.ok===false)break;
-      this.queue.shift();this.saveLocal();
-    }
-    this.syncing=false;
-  },
-
-  // ═══ CRUD ════════════════════════════════════════════════════
-
-  add(col,sheet,record){
-    record.id=record.id||Utils.uid(col.slice(0,3));
-    record.criadoPor=typeof App!=="undefined"?App.currentUser:"Sistema";
-    this.data[col].push(record);this.saveLocal();this.queueChange(sheet,"create",record);
-    return record;
-  },
-  update(col,sheet,id,patch){
-    const i=this.data[col].findIndex(r=>r.id===id);if(i===-1)return null;
-    const before={...this.data[col][i]};
-    this.data[col][i]={...before,...patch};
-    this.saveLocal();this.queueChange(sheet,"update",this.data[col][i]);
-    this.logChange(sheet,id,before,this.data[col][i]);
-    return this.data[col][i];
-  },
-  remove(col,sheet,id){
-    this.data[col]=this.data[col].filter(r=>r.id!==id);
-    this.saveLocal();this.queueChange(sheet,"delete",{id});
-  },
-  logChange(sheet,id,b,a){
-    this.data.logs.unshift({id:Utils.uid("log"),
-      usuario:typeof App!=="undefined"?App.currentUser:"?",
-      data:Utils.todayISO(),hora:new Date().toLocaleTimeString("pt-BR"),
-      aba:sheet,registroId:id,
-      valorAntigo:b.valor??b.pago??b.status??"",
-      valorNovo:a.valor??a.pago??a.status??""});
-    this.data.logs=this.data.logs.slice(0,300);
-  },
-
-  // ═══ CONSULTAS ════════════════════════════════════════════════
-
-  monthDespesas(mk){return this.data.despesas.filter(d=>Utils.monthKey(d.data)===mk);},
-  monthReceitas(mk){return this.data.receitas.filter(r=>Utils.monthKey(r.data)===mk);},
-  monthFixedBills(mk){
-    const m=this._normMk(mk);
-    return this.data.contasFixas.filter(c=>this._normMk(c.mesReferencia)===m);
-  },
-  monthParcelamentos(mk){
-    return this.data.parcelamentos.filter(p=>{
-      const total=Number(p.qtdTotal)||1,df=(p.dataFinal||"").slice(0,7);
-      if(!df)return true;
-      const[ey,em]=df.split("-").map(Number);
-      const st=new Date(ey,em-1-(total-1),1);
-      const smk=`${st.getFullYear()}-${String(st.getMonth()+1).padStart(2,"0")}`;
-      return mk>=smk&&mk<=df;
-    });
-  },
-  monthInvestimentos(){
-    return this.data.investimentos.filter(i=>i.ativo!==false&&Number(i.aportesMensal||0)>0);
-  },
-  sum(list){return list.reduce((s,x)=>s+(Number(x.valor)||0),0);},
-};
+    const
