@@ -1,15 +1,17 @@
+// Nova ordem: Dashboard, Despesas, Contas Fixas, Parcelamentos,
+//             Investimentos, Receitas, Dividas, Anotações, Configurações
 const NAV_ITEMS=[
-  {id:"dashboard",label:"Dashboard",icon:"🏠"},
-  {id:"dividas",label:"Dívidas",icon:"🔴"},
-  {id:"fixas",label:"Contas Fixas",icon:"📌"},
-  {id:"parcelamentos",label:"Parcelamentos",icon:"📦"},
-  {id:"despesas",label:"Despesas",icon:"💸"},
-  {id:"receitas",label:"Receitas",icon:"💰"},
-  {id:"investimentos",label:"Investimentos",icon:"📈"},
-  {id:"anotacoes",label:"Anotações",icon:"📝"},
-  {id:"config",label:"Configurações",icon:"⚙️"},
+  {id:"dashboard",    label:"Dashboard",     icon:"🏠"},
+  {id:"despesas",     label:"Despesas",      icon:"💸"},
+  {id:"fixas",        label:"Contas Fixas",  icon:"📌"},
+  {id:"parcelamentos",label:"Parcelamentos", icon:"📦"},
+  {id:"investimentos",label:"Investimentos", icon:"📈"},
+  {id:"receitas",     label:"Receitas",      icon:"💰"},
+  {id:"dividas",      label:"Dívidas",       icon:"🔴"},
+  {id:"anotacoes",    label:"Anotações",     icon:"📝"},
+  {id:"config",       label:"Configurações", icon:"⚙️"},
 ];
-const BOTTOM_NAV_IDS=["dashboard","dividas","despesas","anotacoes"];
+const BOTTOM_NAV_IDS=["dashboard","despesas","fixas","dividas"];
 
 const App={
   currentUser:null,currentPage:"dashboard",
@@ -22,9 +24,18 @@ const App={
     document.getElementById("current-user-name").textContent=userName;
     document.getElementById("user-avatar-letter").textContent=userName[0].toUpperCase();
     this.buildNav();
-    await Store.init();
+
+    // 1. Carrega dados locais e mostra dashboard IMEDIATAMENTE (sem tela em branco)
+    Store.loadLocal();
+    Store.ensureFixedBillsForMonth(Utils.currentMonthKey());
     this.goTo("dashboard");
     this.bindGlobalEvents();
+
+    // 2. Sincroniza com Sheets em segundo plano e re-renderiza
+    Store.init().then(()=>{
+      Store.ensureFixedBillsForMonth(this.selectedMonth);
+      Pages.render(this.currentPage);
+    }).catch(e=>console.error("Sync error:",e));
   },
 
   setMonth(mk){
@@ -35,12 +46,12 @@ const App={
     Pages.render(this.currentPage);
   },
   prevMonth(){
-    const [y,m]=this.selectedMonth.split("-").map(Number);
+    const[y,m]=this.selectedMonth.split("-").map(Number);
     const d=new Date(y,m-2,1);
     this.setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   },
   nextMonth(){
-    const [y,m]=this.selectedMonth.split("-").map(Number);
+    const[y,m]=this.selectedMonth.split("-").map(Number);
     const d=new Date(y,m,1);
     this.setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   },
@@ -69,7 +80,7 @@ const App={
     });
   },
 
-  openMoreMenu() {document.getElementById("more-menu-sheet").classList.add("active");},
+  openMoreMenu(){document.getElementById("more-menu-sheet").classList.add("active");},
   closeMoreMenu(){document.getElementById("more-menu-sheet").classList.remove("active");},
 
   goTo(page){
@@ -94,9 +105,9 @@ const App={
       if(["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName))return;
       if(e.key.toLowerCase()==="d")Modals.openDespesa();
       if(e.key.toLowerCase()==="r")Modals.openReceita();
-      if(e.key==="ArrowLeft") this.prevMonth();
+      if(e.key==="ArrowLeft")this.prevMonth();
       if(e.key==="ArrowRight")this.nextMonth();
-      if(e.key==="Escape")    Modals.closeAll();
+      if(e.key==="Escape")Modals.closeAll();
     });
   },
 };
