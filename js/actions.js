@@ -150,8 +150,101 @@ const Actions={
     if(remote){
       const inv=remote.investimentos||remote.metas||[];
       Store.data={
-        receitas:          Store._merge(remote.receitas,                           Store.data.receitas),
-        despesas:          Store._merge(remote.despesas,                           Store.data.despesas),
-        contasFixas:       Store._merge(Store._normalizeFixas(remote.contasFixas), Store.data.contasFixas),
-        parcelamentos:     Store._merge(remote.parcelamentos,                      Store.data.parcelamentos),
-        categorias:
+        receitas:          Store._merge(remote.receitas,                                 Store.data.receitas),
+        despesas:          Store._merge(remote.despesas,                                 Store.data.despesas),
+        contasFixas:       Store._merge(Store._limpaInvestimentoDasFixas(remote.contasFixas), Store.data.contasFixas),
+        parcelamentos:     Store._merge(remote.parcelamentos,                            Store.data.parcelamentos),
+        categorias:        remote.categorias?.length?remote.categorias:Store.data.categorias,
+        investimentos:     Store._merge(inv,                                             Store.data.investimentos),
+        configuracoes:     remote.configuracoes||Store.data.configuracoes,
+        logs:              Store._merge(remote.logs,                                     Store.data.logs),
+        dividas:           Store._merge(remote.dividas,                                  Store.data.dividas),
+        pagamentosDividas: Store._merge(remote.pagamentosDividas,                        Store.data.pagamentosDividas),
+        negociacoesDividas:Store._merge(remote.negociacoesDividas,                       Store.data.negociacoesDividas),
+        historicoDividas:  Store._merge(remote.historicoDividas,                         Store.data.historicoDividas),
+        notas:             Store._merge(remote.notas,                                    Store.data.notas),
+      };
+      Store.saveLocal();
+      Utils.toast("Sincronizado ✓");
+    }else{
+      Utils.toast("Falha ao sincronizar — verifique a conexão");
+    }
+    Store.ensureFixedBillsForMonth(App.selectedMonth);
+    Pages.render(App.currentPage);
+  },
+
+  // ═══ CATEGORIAS ═════════════════════════════════════════════
+  addCategory(){
+    const input=document.getElementById("new-cat");
+    const nome=(input?.value||"").trim();
+    if(!nome)return;
+    if(Store.data.categorias.includes(nome)){Utils.toast("Categoria já existe");return;}
+    Store.data.categorias.push(nome);
+    Store.saveLocal();
+    Store.queueChange("Categorias","create",{nome});
+    input.value="";
+    Utils.toast("Categoria adicionada ✓");
+    Pages.renderCategoryChips();
+  },
+
+  // ═══ CONFIGURAÇÕES ══════════════════════════════════════════
+  saveConfig(){
+    const el=document.getElementById("cfg-inicio");
+    const valor=el?.value;
+    if(!valor)return;
+    Store.data.configuracoes={...Store.data.configuracoes,dataInicioSistema:valor};
+    Store.saveLocal();
+    Store.queueChange("Configuracoes","update",Store.data.configuracoes);
+    Utils.toast("Configuração salva ✓");
+  },
+
+  toggleTheme(){
+    const next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+    document.documentElement.setAttribute("data-theme",next);
+    localStorage.setItem(LS_THEME,next);
+    Pages.render(App.currentPage);
+  },
+
+  exportCSV(){
+    const mk=App.selectedMonth;
+    const linhas=[["Tipo","Nome","Categoria","Valor","Data/Vencimento","Pago"]];
+    Store.monthDespesas(mk).forEach(d=>linhas.push(["Despesa",d.nome,d.categoria,d.valor,d.data,""]));
+    Store.monthReceitas(mk).forEach(r=>linhas.push(["Receita",r.nome,r.categoria,r.valor,r.data,""]));
+    Store.monthFixedBills(mk).forEach(f=>linhas.push(["Conta Fixa",f.nome,f.categoria,f.valor,f.diaVencimento,f.pago?"Sim":"Não"]));
+    Store.monthParcelamentos(mk).forEach(p=>linhas.push(["Parcelamento",p.nome,"",p.valorParcela,p.dataFinal,Store.isParcelamentoPago(p.id,mk)?"Sim":"Não"]));
+    const csv=linhas.map(l=>l.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\n");
+    const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`financas_${mk}.csv`;a.click();
+    URL.revokeObjectURL(url);
+    Utils.toast("CSV exportado ✓");
+  },
+
+  // ═══ ANOTAÇÕES ══════════════════════════════════════════════
+  saveNota(dados){
+    if(dados.id){
+      Store.update("notas","Notas",dados.id,{titulo:dados.titulo||"",conteudo:dados.conteudo||"",cor:dados.cor||"#FFF9C4",atualizadoEm:Utils.todayISO()});
+      Utils.toast("Nota atualizada ✓");
+    }else{
+      Store.add("notas","Notas",{titulo:dados.titulo||"",conteudo:dados.conteudo||"",cor:dados.cor||"#FFF9C4",atualizadoEm:Utils.todayISO()});
+      Utils.toast("Nota criada ✓");
+    }
+    Pages.render(App.currentPage);
+  },
+
+  removeNota(id){
+    if(!confirm("Excluir esta nota?"))return;
+    Store.remove("notas","Notas",id);
+    Utils.toast("Nota excluída");
+    Pages.render(App.currentPage);
+  },
+
+  // ═══ GENÉRICO ═══════════════════════════════════════════════
+  remove(col,sheet,id){
+    if(!confirm("Excluir este item?"))return;
+    Store.remove(col,sheet,id);
+    Utils.toast("Excluído ✓");
+    Pages.render(App.currentPage);
+  },
+};

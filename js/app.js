@@ -91,11 +91,7 @@ const App={
   },
 
   bindGlobalEvents(){
-    document.getElementById("theme-toggle-btn").onclick=()=>{
-      const next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
-      document.documentElement.setAttribute("data-theme",next);
-      localStorage.setItem(LS_THEME,next);
-    };
+    document.getElementById("theme-toggle-btn").onclick=()=>Actions.toggleTheme();
     document.getElementById("logout-btn").onclick=()=>Auth.logout();
     document.getElementById("fab-add").onclick=()=>Modals.openQuickAdd();
     document.getElementById("more-menu-sheet").onclick=e=>{
