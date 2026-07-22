@@ -22,5 +22,5 @@ window.APP_CONFIG = {
 
   // ── Senha única de acesso ao app ──────────────────────
   // SHA-256 da senha (mantida a senha do Higor, usada por ambos).
-  PASSWORD_HASH: "cd9b9e80a5b78a3d4c6778e6f7851a28bd15f744a6de0495888baafdb74afb58",
+  PASSWORD_HASH: "b7ca93a0ea3d4b2d2330b5363aa251bf2c8bd184f3b4d8032b645064772ad214",
 };
