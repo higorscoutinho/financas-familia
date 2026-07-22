@@ -21,8 +21,6 @@ const App={
   async boot(userName){
     this.currentUser=userName;
     document.getElementById("app").classList.add("active");
-    document.getElementById("current-user-name").textContent=userName;
-    document.getElementById("user-avatar-letter").textContent=userName[0].toUpperCase();
     this.buildNav();
 
     // 1. Carrega dados locais e mostra dashboard IMEDIATAMENTE (sem tela em branco)

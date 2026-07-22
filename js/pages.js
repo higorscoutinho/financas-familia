@@ -67,7 +67,7 @@ const Pages={
     const faltaPagar=faltaFixas+faltaParc;
 
     this.header(main,
-      isNow?`Olá, ${App.currentUser.split(" ")[0]} 👋`:`📅 ${Utils.monthLabel(mk)}`,
+      isNow?`Olá! 👋`:`📅 ${Utils.monthLabel(mk)}`,
       `Resumo de ${Utils.monthLabel(mk)}${!isNow?" — modo consulta":""}`);
     this.monthSelector(main);
 
@@ -448,10 +448,9 @@ const Pages={
       </div>`;
     row.appendChild(c2);
     const c3=document.createElement("div");c3.className="card";
-    c3.innerHTML=`<h3>Usuários</h3>
-      <p class="row-sub">Usuário 1: <strong>${window.APP_CONFIG?.USER_1||"Higor"}</strong></p>
-      <p class="row-sub" style="margin-top:6px;">Usuário 2: <strong>${window.APP_CONFIG?.USER_2||"Bia"}</strong></p>
-      <p class="row-sub" style="margin-top:12px;">Para alterar nomes ou senhas, edite <code>js/config.js</code>.</p>`;
+    c3.innerHTML=`<h3>Segurança</h3>
+      <p class="row-sub">🔒 Acesso protegido por senha única, compartilhada.</p>
+      <p class="row-sub" style="margin-top:12px;">Para alterar a senha, edite <code>js/config.js</code>.</p>`;
     row.appendChild(c3);
     const c4=document.createElement("div");c4.className="card";
     c4.innerHTML=`<h3>Exportar dados</h3>
