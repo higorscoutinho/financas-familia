@@ -64,7 +64,9 @@ const Pages={
     const faltaFixas=Store.sum(fixasAbertas);
     const faltaParc=parcMes.filter(p=>!Store.isParcelamentoPago(p.id,mk))
       .reduce((s,p)=>s+Number(p.valorParcela||0),0);
-    const faltaPagar=faltaFixas+faltaParc;
+    const despesasAbertas=despMes.filter(d=>d.pago===false);
+    const faltaDesp=Store.sum(despesasAbertas);
+    const faltaPagar=faltaFixas+faltaParc+faltaDesp;
 
     this.header(main,
       isNow?`Olá! 👋`:`📅 ${Utils.monthLabel(mk)}`,
@@ -101,9 +103,12 @@ const Pages={
 
     if(isNow){
       const cAlert=document.createElement("div");cAlert.className="card";
+      const abertos=[
+        ...fixasAbertas.map(f=>({nome:f.nome,valor:f.valor,dias:Utils.daysUntilInMonth(Number(f.diaVencimento),f.mesReferencia),sub:`Dia ${f.diaVencimento}`})),
+        ...despesasAbertas.map(d=>({nome:d.nome,valor:d.valor,dias:Utils.diasAteData(d.data),sub:Utils.fmtDateFull(d.data)})),
+      ].sort((a,b)=>a.dias-b.dias);
       cAlert.innerHTML=`<h3>Contas em aberto este mês</h3>`+this.listOrEmpty(
-        fixasAbertas.map(f=>({...f,dias:Utils.daysUntilInMonth(Number(f.diaVencimento),f.mesReferencia)}))
-          .sort((a,b)=>a.dias-b.dias),
+        abertos,
         f=>{
           const badge=f.dias<0?`<span class="badge red">Atrasada (${Math.abs(f.dias)}d)</span>`:
             f.dias===0?`<span class="badge red">Vence hoje</span>`:
@@ -112,7 +117,7 @@ const Pages={
           return`<div class="list-row">
             <div class="row-main">
               <div class="row-title">${Utils.escapeHtml(f.nome)}</div>
-              <div class="row-sub">Dia ${f.diaVencimento} · ${Utils.brl(f.valor)}</div>
+              <div class="row-sub">${f.sub} · ${Utils.brl(f.valor)}</div>
             </div>
             ${badge}
           </div>`;
@@ -132,13 +137,19 @@ const Pages={
     main.appendChild(this.searchAndFilters("despesas"));
     const list=this.applyFilters(Store.monthDespesas(mk)).sort((a,b)=>(b.data||"").localeCompare(a.data||""));
     const card=document.createElement("div");card.className="card";
-    card.innerHTML=this.listOrEmpty(list,d=>`
+    card.innerHTML=this.listOrEmpty(list,d=>{
+      const pendente=d.pago===false;
+      const badge=pendente?`<span class="badge red">A pagar</span>`:`<span class="badge green">Pago</span>`;
+      return`
       <div class="list-row">
         <div class="row-main"><div class="row-title">${Utils.escapeHtml(d.nome)}</div><div class="row-sub">${Utils.escapeHtml(d.categoria||"—")} · ${Utils.fmtDateFull(d.data)} · ${Utils.escapeHtml(d.formaPagamento||"—")}</div></div>
+        ${badge}
         <div class="row-amount neg">−${Utils.brl(d.valor)}</div>
+        <button class="btn btn-sm ${pendente?"btn-primary":"btn-secondary"}" onclick="Actions.payDespesa('${d.id}')">${pendente?"✓ Pago":"Desfazer"}</button>
         <button class="btn btn-sm btn-ghost" onclick="Modals.openDespesa('${d.id}')">✏️</button>
         <button class="btn btn-sm btn-ghost" onclick="Actions.remove('despesas','Despesas','${d.id}')">🗑️</button>
-      </div>`,"Nenhuma despesa neste mês.");
+      </div>`;
+    },"Nenhuma despesa neste mês.");
     main.appendChild(card);
   },
 

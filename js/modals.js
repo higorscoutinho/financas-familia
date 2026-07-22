@@ -41,6 +41,7 @@ const Modals={
 
   openDespesa(id){
     const item=id?Store.data.despesas.find(d=>d.id===id):null;
+    const jaPagou=item?.pago!==false;
     this.open(item?"Editar Despesa":"Nova Despesa",`
       <div class="field"><label>Nome</label><input name="nome" required value="${item?.nome||""}" autofocus></div>
       <div class="field-row">
@@ -51,11 +52,18 @@ const Modals={
         <div class="field"><label>Forma de pagamento</label>
           <select name="formaPagamento">${["Pix","Dinheiro","Débito","Crédito","Transferência"].map(f=>`<option ${item?.formaPagamento===f?"selected":""}>${f}</option>`).join("")}</select>
         </div>
-        <div class="field"><label>Data</label><input name="data" type="date" required value="${item?.data||Utils.todayISO()}"></div>
+        <div class="field"><label>Data ${jaPagou?"":"(vencimento)"}</label><input name="data" type="date" required value="${item?.data||Utils.todayISO()}"></div>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:8px;">
+        <input type="checkbox" name="pago" id="desp-pago" style="width:auto;" ${jaPagou?"checked":""}>
+        <label for="desp-pago" style="margin:0;">Já paguei essa despesa</label>
       </div>
       <div class="field"><label>Observações</label><textarea name="obs" rows="2">${item?.obs||""}</textarea></div>
     `,fd=>{
       const d=Object.fromEntries(fd.entries());
+      const pago=fd.get("pago")==="on";
+      d.pago=pago;
+      d.dataPagamento=pago?(item?.dataPagamento||Utils.todayISO()):"";
       if(item)Store.update("despesas","Despesas",item.id,d);else Store.add("despesas","Despesas",d);
       Utils.toast("Despesa salva ✓");Modals.closeAll();Pages.render(App.currentPage);
     });

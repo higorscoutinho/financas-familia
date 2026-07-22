@@ -54,6 +54,15 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
+  // ═══ DESPESAS AVULSAS (a pagar) ═════════════════════════════
+  payDespesa(id){
+    const item=Store.data.despesas.find(d=>d.id===id);if(!item)return;
+    const pago=item.pago===false;
+    Store.update("despesas","Despesas",id,{pago,dataPagamento:pago?Utils.todayISO():""});
+    Utils.toast(pago?"Pago ✓":"Marcado como pendente");
+    Pages.render(App.currentPage);
+  },
+
   // ═══ PARCELAMENTOS ════════════════════════════════════════
 
   toggleParcelamentoPago(id){

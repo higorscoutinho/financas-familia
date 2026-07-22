@@ -51,6 +51,14 @@ const Utils={
   // Mantido para compatibilidade (usa mês atual)
   daysUntil(dueDay){return Utils.daysUntilInMonth(dueDay,Utils.currentMonthKey());},
 
+  // Dias até uma data absoluta (yyyy-mm-dd) — usado por despesas avulsas a pagar
+  diasAteData(dateStr){
+    if(!dateStr)return 0;
+    const due=new Date(dateStr+"T00:00:00");
+    const now=new Date();now.setHours(0,0,0,0);
+    return Math.round((due-now)/86400000);
+  },
+
   daysInMonth(mk){const[y,m]=mk.split("-").map(Number);return new Date(y,m,0).getDate();},
 
   dayOfMonthToday(){return new Date().getDate();},
