@@ -164,6 +164,7 @@ const Actions={
         historicoDividas:  Store._merge(remote.historicoDividas,                         Store.data.historicoDividas),
         notas:             Store._merge(remote.notas,                                    Store.data.notas),
       };
+      Store.parcelamentosPagos=Store._mergeParcelamentosPagos(remote.parcelamentosPagos);
       Store.saveLocal();
       Utils.toast("Sincronizado ✓");
     }else{

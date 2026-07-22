@@ -82,6 +82,7 @@ const Store={
           historicoDividas:  this._merge(remote.historicoDividas,                                 this.data.historicoDividas),
           notas:             this._merge(remote.notas,                                            this.data.notas),
         };
+        this.parcelamentosPagos=this._mergeParcelamentosPagos(remote.parcelamentosPagos);
         this.saveLocal();
         Utils.toast("Sincronizado ✓");
       }else{
@@ -237,9 +238,26 @@ const Store={
   isParcelamentoPago(id,mk){return!!this.parcelamentosPagos[this.parcPagoKey(id,mk)]?.pago;},
   toggleParcelamentoPago(id,mk){
     const k=this.parcPagoKey(id,mk),pago=!this.parcelamentosPagos[k]?.pago;
-    if(pago)this.parcelamentosPagos[k]={pago:true,data:Utils.todayISO()};
-    else delete this.parcelamentosPagos[k];
+    if(pago){
+      this.parcelamentosPagos[k]={pago:true,data:Utils.todayISO()};
+      this.queueChange("ParcelamentosPagos","create",{id:k,parcelamentoId:id,mesReferencia:mk,pago:true,dataPagamento:this.parcelamentosPagos[k].data});
+    }else{
+      delete this.parcelamentosPagos[k];
+      this.queueChange("ParcelamentosPagos","delete",{id:k});
+    }
     this.saveLocal();return pago;
+  },
+
+  // Mescla o que veio do Sheets com marcações locais ainda não sincronizadas
+  _mergeParcelamentosPagos(remoteArr){
+    const map={};
+    (remoteArr||[]).forEach(r=>{if(r&&r.id&&r.pago)map[r.id]={pago:true,data:r.dataPagamento||""};});
+    const pendentes=new Set(this.queue.filter(q=>q.sheet==="ParcelamentosPagos").map(q=>q.data?.id).filter(Boolean));
+    pendentes.forEach(k=>{
+      const local=this.parcelamentosPagos[k];
+      if(local)map[k]=local;else delete map[k];
+    });
+    return map;
   },
 
   // ═══ FILA ════════════════════════════════════════════════════
