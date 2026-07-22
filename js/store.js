@@ -96,19 +96,27 @@ const Store={
   // ═══ CONTAS FIXAS — SEM NENHUMA LÓGICA DE INVESTIMENTO ══════
   criarContaFixa(dados){
     const grupoId=Utils.uid("grp");
-    const mk=this._normMk(typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey());
-    const inst={
-      id:Utils.uid("fix"),grupoId,
-      nome:dados.nome,categoria:dados.categoria,
-      valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
-      mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
-      criadoPor:typeof App!=="undefined"?App.currentUser:"Sistema",
-      // NUNCA tem investimentoId
-    };
-    this.data.contasFixas.push(inst);
-    this.queueChange("ContasFixas","create",inst);
+    const mkBase=this._normMk(typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey());
+    const criadoPor=typeof App!=="undefined"?App.currentUser:"Sistema";
+    const[by,bm]=mkBase.split("-").map(Number);
+    let primeira=null;
+    for(let i=0;i<12;i++){
+      const d=new Date(by,bm-1+i,1);
+      const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      const inst={
+        id:Utils.uid("fix"),grupoId,
+        nome:dados.nome,categoria:dados.categoria,
+        valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
+        mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
+        criadoPor,
+        // NUNCA tem investimentoId
+      };
+      this.data.contasFixas.push(inst);
+      this.queueChange("ContasFixas","create",inst);
+      if(i===0)primeira=inst;
+    }
     this.saveLocal();
-    return inst;
+    return primeira;
   },
 
   // Repete fixas manuais no mês navegado — ZERO lógica de investimento
