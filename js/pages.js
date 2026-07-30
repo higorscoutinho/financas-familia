@@ -183,6 +183,7 @@ const Pages={
         <button class="btn btn-sm ${f.pago?"btn-secondary":"btn-primary"}" onclick="Actions.payFixedBill('${f.id}')">${f.pago?"Desfazer":"✓ Pago"}</button>
         <select class="month-move-select" title="Mover para outro mês" onchange="Actions.moveFixaToMonth('${f.id}',this.value)">${opts}</select>
         <button class="btn btn-sm btn-ghost" onclick="Modals.openFixa('${f.id}')">✏️</button>
+        <button class="btn btn-sm btn-ghost" title="Duplicar para o próximo mês" onclick="Actions.duplicarContaFixa('${f.id}')">📋➡️</button>
         <button class="btn btn-sm btn-ghost" onclick="Actions.excluirContaFixa('${f.id}')">🗑️</button>
       </div>`;
     },"Nenhuma conta fixa neste mês.");

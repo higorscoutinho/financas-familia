@@ -25,10 +25,15 @@ const Store={
   _merge(remote,local){
     if(!Array.isArray(remote))remote=[];
     if(!Array.isArray(local))local=[];
-    const remoteIds=new Set(remote.map(i=>i?.id).filter(Boolean));
+    // Remove duplicatas por id — mantém a ocorrência mais recente
+    // (protege contra linhas duplicadas que possam existir no Sheets)
+    const map=new Map();
+    remote.forEach(item=>{if(item&&item.id)map.set(item.id,item);});
+    const remoteDeduped=[...map.values()];
+    const remoteIds=new Set(remoteDeduped.map(i=>i?.id).filter(Boolean));
     const pendingIds=new Set(this.queue.filter(q=>q.op==="create").map(q=>q.data?.id).filter(Boolean));
     const extras=local.filter(i=>i?.id&&!remoteIds.has(i.id)&&pendingIds.has(i.id));
-    return[...remote,...extras];
+    return[...remoteDeduped,...extras];
   },
 
   loadLocal(){
@@ -90,73 +95,55 @@ const Store={
       }
       this.flushQueue();
     }
-    this.ensureFixedBillsForMonth(Utils.currentMonthKey());
   },
 
   // ═══ CONTAS FIXAS — SEM NENHUMA LÓGICA DE INVESTIMENTO ══════
+  // 100% manual: cria só a instância do mês escolhido. Para repetir
+  // em outro mês, use Actions.duplicarContaFixa (botão "Duplicar").
   criarContaFixa(dados){
     const grupoId=Utils.uid("grp");
-    const mkBase=this._normMk(typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey());
-    const criadoPor=typeof App!=="undefined"?App.currentUser:"Sistema";
-    const[by,bm]=mkBase.split("-").map(Number);
-    let primeira=null;
-    for(let i=0;i<12;i++){
-      const d=new Date(by,bm-1+i,1);
-      const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-      const inst={
-        id:Utils.uid("fix"),grupoId,
-        nome:dados.nome,categoria:dados.categoria,
-        valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
-        mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
-        criadoPor,
-        // NUNCA tem investimentoId
-      };
-      this.data.contasFixas.push(inst);
-      this.queueChange("ContasFixas","create",inst);
-      if(i===0)primeira=inst;
-    }
+    const mk=this._normMk(typeof App!=="undefined"?App.selectedMonth:Utils.currentMonthKey());
+    const inst={
+      id:Utils.uid("fix"),grupoId,
+      nome:dados.nome,categoria:dados.categoria,
+      valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||"",
+      mesReferencia:mk,pago:false,dataPagamento:"",horaPagamento:"",
+      criadoPor:typeof App!=="undefined"?App.currentUser:"Sistema",
+      // NUNCA tem investimentoId
+    };
+    this.data.contasFixas.push(inst);
+    this.queueChange("ContasFixas","create",inst);
     this.saveLocal();
-    return primeira;
+    return inst;
   },
 
-  // Repete fixas manuais no mês navegado — ZERO lógica de investimento
-  ensureFixedBillsForMonth(mk){
-    mk=this._normMk(mk);
-    const grupos={};
-    this.data.contasFixas.forEach(c=>{
-      if(!c||!c.grupoId||c.investimentoId)return; // IGNORA qualquer uma com investimentoId
-      const ref=this._normMk(c.mesReferencia);
-      if(!grupos[c.grupoId])grupos[c.grupoId]=[];
-      grupos[c.grupoId].push({...c,mesReferencia:ref});
-    });
-    let criou=false;
-    Object.entries(grupos).forEach(([grupoId,instances])=>{
-      if(instances.some(c=>c.mesReferencia===mk))return;
-      const sorted=[...instances].sort((a,b)=>a.mesReferencia.localeCompare(b.mesReferencia));
-      const tpl=sorted[0];
-      if(tpl.mesReferencia>mk)return;
-      const novo={
-        ...tpl,
-        id:Utils.uid("fix"),
-        grupoId,
-        mesReferencia:mk,
-        pago:false,
-        dataPagamento:"",
-        horaPagamento:"",
-        // GARANTE que não tem investimentoId
-        investimentoId:undefined,
-      };
-      delete novo.investimentoId;
-      this.data.contasFixas.push(novo);
-      this.queueChange("ContasFixas","create",novo);
-      criou=true;
-    });
-    if(criou)this.saveLocal();
+  // Duplica manualmente uma conta fixa existente para o mês seguinte
+  duplicarContaFixaProximoMes(id){
+    const base=this.data.contasFixas.find(c=>c.id===id);
+    if(!base||base.investimentoId)return null;
+    const[y,m]=this._normMk(base.mesReferencia).split("-").map(Number);
+    const d=new Date(y,m,1);
+    const novoMk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const jaExiste=this.data.contasFixas.some(c=>c.grupoId===base.grupoId&&this._normMk(c.mesReferencia)===novoMk);
+    if(jaExiste)return{jaExiste:true,mk:novoMk};
+    const novo={
+      ...base,id:Utils.uid("fix"),mesReferencia:novoMk,
+      pago:false,dataPagamento:"",horaPagamento:"",
+    };
+    delete novo.investimentoId;
+    this.data.contasFixas.push(novo);
+    this.queueChange("ContasFixas","create",novo);
+    this.saveLocal();
+    return{jaExiste:false,mk:novoMk,item:novo};
   },
 
-  editarContaFixa(id,patch){
+  editarContaFixa(id,patch,apenasEsseMes){
     const base=this.data.contasFixas.find(c=>c.id===id);
     if(!base||base.investimentoId)return;
+    if(apenasEsseMes){
+      this.update("contasFixas","ContasFixas",id,patch);
+      return;
+    }
     const grupoId=base.grupoId;
     const mk=this._normMk(base.mesReferencia);
     this.data.contasFixas.forEach((c,i)=>{
@@ -172,9 +159,13 @@ const Store={
     this.saveLocal();
   },
 
-  excluirContaFixa(id){
+  excluirContaFixa(id,apenasEsseMes){
     const base=this.data.contasFixas.find(c=>c.id===id);
     if(!base||base.investimentoId)return;
+    if(apenasEsseMes){
+      this.remove("contasFixas","ContasFixas",id);
+      return;
+    }
     const grupoId=base.grupoId;
     const mk=this._normMk(base.mesReferencia);
     this.data.contasFixas

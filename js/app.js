@@ -25,13 +25,11 @@ const App={
 
     // 1. Carrega dados locais e mostra dashboard IMEDIATAMENTE (sem tela em branco)
     Store.loadLocal();
-    Store.ensureFixedBillsForMonth(Utils.currentMonthKey());
     this.goTo("dashboard");
     this.bindGlobalEvents();
 
     // 2. Sincroniza com Sheets em segundo plano e re-renderiza
     Store.init().then(()=>{
-      Store.ensureFixedBillsForMonth(this.selectedMonth);
       Pages.render(this.currentPage);
     }).catch(e=>console.error("Sync error:",e));
   },
@@ -40,7 +38,6 @@ const App={
     if(!mk)return;
     this.selectedMonth=mk;
     document.querySelectorAll(".month-picker-input").forEach(el=>{el.value=mk;});
-    Store.ensureFixedBillsForMonth(mk);
     Pages.render(this.currentPage);
   },
   prevMonth(){

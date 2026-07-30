@@ -4,8 +4,14 @@ const Actions={
 
   salvarContaFixa(dados,editId){
     if(editId){
-      Store.editarContaFixa(editId,{nome:dados.nome,categoria:dados.categoria,valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||""});
-      Utils.toast("Conta atualizada ✓");
+      const item=Store.data.contasFixas.find(c=>c.id===editId);
+      const apenasEsseMes=item?confirm(
+        `Alterar "${item.nome}" (${Utils.monthLabel(item.mesReferencia)}):\n\n`+
+        `OK = alterar SÓ este mês\n`+
+        `Cancelar = alterar este mês E os seguintes ainda não pagos`
+      ):true;
+      Store.editarContaFixa(editId,{nome:dados.nome,categoria:dados.categoria,valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||""},apenasEsseMes);
+      Utils.toast(apenasEsseMes?"Conta atualizada (só este mês) ✓":"Conta atualizada (este mês em diante) ✓");
     }else{
       Store.criarContaFixa({nome:dados.nome,categoria:dados.categoria,valor:dados.valor,diaVencimento:dados.diaVencimento,obs:dados.obs||""});
       Utils.toast("Conta fixa criada ✓");
@@ -15,9 +21,24 @@ const Actions={
 
   excluirContaFixa(id){
     const item=Store.data.contasFixas.find(c=>c.id===id);if(!item)return;
-    if(!confirm(`Excluir "${item.nome}" deste mês em diante?\nMeses já pagos permanecem.`))return;
-    Store.excluirContaFixa(id);
-    Utils.toast("Excluída deste mês em diante ✓");
+    const apenasEsseMes=confirm(
+      `Excluir "${item.nome}" (${Utils.monthLabel(item.mesReferencia)}):\n\n`+
+      `OK = excluir SÓ este mês\n`+
+      `Cancelar = excluir este mês E os seguintes ainda não pagos`
+    );
+    if(!apenasEsseMes){
+      if(!confirm(`Confirma excluir "${item.nome}" de ${Utils.monthLabel(item.mesReferencia)} em diante?\nMeses já pagos permanecem.`))return;
+    }
+    Store.excluirContaFixa(id,apenasEsseMes);
+    Utils.toast(apenasEsseMes?"Excluída (só este mês) ✓":"Excluída deste mês em diante ✓");
+    Pages.render(App.currentPage);
+  },
+
+  duplicarContaFixa(id){
+    const res=Store.duplicarContaFixaProximoMes(id);
+    if(!res)return;
+    if(res.jaExiste){Utils.toast(`Já existe em ${Utils.monthLabel(res.mk)}`);return;}
+    Utils.toast(`Duplicada para ${Utils.monthLabel(res.mk)} ✓`);
     Pages.render(App.currentPage);
   },
 
@@ -179,7 +200,6 @@ const Actions={
     }else{
       Utils.toast("Falha ao sincronizar — verifique a conexão");
     }
-    Store.ensureFixedBillsForMonth(App.selectedMonth);
     Pages.render(App.currentPage);
   },
 
