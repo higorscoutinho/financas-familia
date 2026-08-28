@@ -45,6 +45,7 @@ const App = {
     document.querySelectorAll(".month-picker-input").forEach(el => { el.value = mk; });
     // SEM auto-repetição de contas fixas — usuário gerencia manualmente
     Pages.render(this.currentPage);
+    if (typeof this.injectResumoButton === "function") setTimeout(() => this.injectResumoButton(), 0);
   },
 
   prevMonth() {
@@ -98,6 +99,7 @@ const App = {
     document.querySelectorAll(".nav-item").forEach(el => el.classList.toggle("active", el.dataset.page===page));
     document.querySelectorAll(".bn-item").forEach(el  => el.classList.toggle("active", el.dataset.page===page));
     Pages.render(page);
+    if (typeof this.injectResumoButton === "function") setTimeout(() => this.injectResumoButton(), 0);
   },
 
   bindGlobalEvents() {
@@ -122,326 +124,194 @@ const App = {
   },
 };
 
+
 /* =========================================================
-   EXTRATO DE PAGAMENTOS — ADIÇÃO INDEPENDENTE
-   Não altera a lógica existente do aplicativo.
-   Apenas adiciona o botão no Dashboard e a geração do PDF
-   com os itens ainda não pagos do mês selecionado.
+   RESUMO DO MÊS — ADIÇÃO ÚNICA
+   Não altera a lógica existente. Apenas adiciona o botão
+   de resumo no Dashboard e gera o PDF sob demanda.
    ========================================================= */
 (function () {
-  const RESUMO_BTN_ID = "ff-gerar-resumo-btn";
+  const BTN_ID = "ff-gerar-resumo-btn";
   const PDF_CDN = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 
-  function esc(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
+  const val = (obj, names, fallback = "") => {
+    for (const n of names) if (obj && obj[n] !== undefined && obj[n] !== null && obj[n] !== "") return obj[n];
+    return fallback;
+  };
 
-  function num(value) {
-    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-    const s = String(value ?? "").replace(/R\$\s?/g, "").trim();
+  const num = v => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    const s = String(v ?? "").replace(/R\$\s?/g, "").trim();
     if (!s) return 0;
     if (s.includes(",") && s.includes(".")) return Number(s.replace(/\./g, "").replace(",", ".")) || 0;
     if (s.includes(",")) return Number(s.replace(",", ".")) || 0;
     return Number(s) || 0;
-  }
+  };
 
-  function money(value) {
-    return num(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  }
+  const money = v => num(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-  function dateBR(value) {
-    if (!value) return "—";
-    const s = String(value);
-    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
-    const br = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
-    if (br) return `${br[1]}/${br[2]}/${br[3]}`;
-    return s;
-  }
+  const dateBR = v => {
+    if (!v) return "—";
+    const s = String(v);
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    m = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
+    return m ? `${m[1]}/${m[2]}/${m[3]}` : s;
+  };
 
-  function monthName(mk) {
+  const monthName = mk => {
     const [y, m] = String(mk || "").split("-").map(Number);
-    if (!y || !m) return mk || "";
-    return new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-  }
+    return y && m ? new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" }) : mk;
+  };
 
-  function monthOf(value) {
-    if (!value) return "";
-    const s = String(value);
-    const iso = s.match(/^(\d{4})-(\d{2})/);
-    if (iso) return `${iso[1]}-${iso[2]}`;
-    const br = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
-    if (br) return `${br[3]}-${br[2]}`;
-    return "";
-  }
+  const monthOf = v => {
+    if (!v) return "";
+    const s = String(v);
+    let m = s.match(/^(\d{4})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}`;
+    m = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
+    return m ? `${m[3]}-${m[2]}` : "";
+  };
 
-  function isPaid(item) {
-    if (!item) return false;
-    if (item.pago === true || item.pago === "true" || String(item.pago).toUpperCase() === "SIM") return true;
-    if (["pago", "quitada", "paid", "sim"].includes(String(item.status || "").toLowerCase())) return true;
-    return !!(item.dataPagamento || item.dataPgto || item.dataPagamentoISO);
-  }
-
-  function field(item, names, fallback = "") {
-    for (const name of names) {
-      if (item && item[name] !== undefined && item[name] !== null && item[name] !== "") return item[name];
-    }
-    return fallback;
-  }
-
-  function getInstallmentDate(p, mk) {
-    const explicit = field(p, ["vencimento", "dataVencimento", "diaVencimento"]);
-    if (explicit) {
-      if (/^\d{1,2}$/.test(String(explicit))) {
-        const [y, m] = mk.split("-").map(Number);
-        return `${y}-${String(m).padStart(2, "0")}-${String(Number(explicit)).padStart(2, "0")}`;
-      }
-      if (monthOf(explicit) === mk) return explicit;
-    }
-    const dia = field(p, ["dia", "diaVencimento", "vencimentoDia"], "");
-    if (dia && /^\d{1,2}$/.test(String(dia))) {
-      const [y, m] = mk.split("-").map(Number);
-      return `${y}-${String(m).padStart(2, "0")}-${String(Number(dia)).padStart(2, "0")}`;
-    }
-    return "";
-  }
+  const paid = x => {
+    if (!x) return false;
+    if (x.pago === true || String(x.pago).toUpperCase() === "SIM") return true;
+    if (["pago", "quitada", "paid", "sim"].includes(String(x.status || "").toLowerCase())) return true;
+    return !!(x.dataPagamento || x.dataPgto || x.dataPagamentoISO);
+  };
 
   function collect(mk) {
     const d = Store.data || {};
-
-    const fixas = (typeof Store.monthFixedBills === "function" ? Store.monthFixedBills(mk) : (d.contasFixas || []))
-      .filter(c => !isPaid(c));
-
-    const despesas = (typeof Store.monthDespesas === "function" ? Store.monthDespesas(mk) : (d.despesas || []))
-      .filter(x => !isPaid(x));
-
-    const parcelamentos = (typeof Store.monthParcelamentos === "function" ? Store.monthParcelamentos(mk) : (d.parcelamentos || []))
-      .filter(p => {
-        if (typeof Store.isParcelamentoPago === "function" && Store.isParcelamentoPago(p.id, mk)) return false;
-        return true;
-      });
-
+    const fixas = (Store.monthFixedBills ? Store.monthFixedBills(mk) : (d.contasFixas || [])).filter(x => !paid(x));
+    const despesas = (Store.monthDespesas ? Store.monthDespesas(mk) : (d.despesas || [])).filter(x => !paid(x));
+    const parcelamentos = (Store.monthParcelamentos ? Store.monthParcelamentos(mk) : (d.parcelamentos || [])).filter(x => {
+      return !(Store.isParcelamentoPago && Store.isParcelamentoPago(x.id, mk));
+    });
     const dividas = (d.dividas || []).filter(x => {
       if (String(x.status || "").toLowerCase() === "quitada") return false;
-      const venc = field(x, ["dataVencimento", "vencimento", "data"]);
+      const venc = val(x, ["dataVencimento", "vencimento", "data"]);
       const vm = monthOf(venc);
       return !vm || vm === mk || String(x.status || "").toLowerCase() === "em_atraso";
     });
-
     return { fixas, despesas, parcelamentos, dividas };
   }
 
-  function injectButton() {
-    if (typeof App === "undefined" || App.currentPage !== "dashboard") return;
-    const main = document.getElementById("main-content");
-    if (!main || document.getElementById(RESUMO_BTN_ID)) return;
-
-    main.style.position = main.style.position || "relative";
-    const btn = document.createElement("button");
-    btn.id = RESUMO_BTN_ID;
-    btn.type = "button";
-    btn.title = "Gerar resumo do que falta pagar";
-    btn.setAttribute("aria-label", "Gerar resumo do que falta pagar");
-    btn.innerHTML = "<span style=\"font-size:13px;line-height:1;\">▤</span><span>Resumo</span>";
-    btn.style.cssText = [
-      "position:absolute", "top:10px", "right:14px", "z-index:20", "display:flex",
-      "align-items:center", "gap:5px", "height:30px", "padding:0 9px", "border-radius:8px",
-      "border:1px solid var(--border-color,#d9dce5)", "background:var(--card-bg,#fff)",
-      "color:var(--text-primary,#202124)", "font:600 12px/1 Arial,sans-serif", "cursor:pointer",
-      "box-shadow:0 2px 7px rgba(0,0,0,.08)"
-    ].join(";");
-    btn.onclick = generatePDF;
-    main.appendChild(btn);
+  function normalize(raw, mk) {
+    return {
+      fixas: raw.fixas.map(x => ({
+        descricao: val(x, ["descricao", "nome", "titulo"], "Conta fixa"),
+        categoria: val(x, ["categoria", "tipo"], "Fixa"),
+        vencimento: val(x, ["vencimento", "dataVencimento", "data"]),
+        valor: val(x, ["valor", "valorTotal", "valorParcela"], 0)
+      })),
+      despesas: raw.despesas.map(x => ({
+        descricao: val(x, ["descricao", "nome", "titulo"], "Despesa"),
+        categoria: val(x, ["categoria", "tipo"], "Despesa"),
+        vencimento: val(x, ["vencimento", "dataVencimento", "data"]),
+        valor: val(x, ["valor", "valorTotal"], 0)
+      })),
+      parcelamentos: raw.parcelamentos.map(x => {
+        const p = Store.getInstallmentForMonth ? Store.getInstallmentForMonth(x, mk) : val(x, ["parcelaAtual"], "");
+        return {
+          descricao: `${val(x, ["descricao", "nome", "titulo"], "Parcelamento")} — parcela ${p}/${val(x, ["qtdTotal", "totalParcelas"], "?")}`,
+          categoria: val(x, ["categoria", "tipo"], "Parcelado"),
+          vencimento: val(x, ["vencimento", "dataVencimento", "data"], ""),
+          valor: val(x, ["valorParcela", "valor", "valorMensal"], 0)
+        };
+      }),
+      dividas: raw.dividas.map(x => ({
+        descricao: val(x, ["descricao", "credor", "nome", "titulo"], "Dívida"),
+        categoria: "Dívida",
+        vencimento: val(x, ["dataVencimento", "vencimento", "data"], ""),
+        valor: val(x, ["valorRestante", "valorAtual", "valor"], 0)
+      }))
+    };
   }
 
-  function loadJsPDF() {
+  function inject() {
+    if (typeof App === "undefined" || App.currentPage !== "dashboard") return;
+    const main = document.getElementById("main-content");
+    if (!main || document.getElementById(BTN_ID)) return;
+    main.style.position = main.style.position || "relative";
+    const b = document.createElement("button");
+    b.id = BTN_ID;
+    b.type = "button";
+    b.title = "Gerar resumo do que falta pagar";
+    b.innerHTML = "▤ Resumo";
+    b.style.cssText = "position:absolute;top:10px;right:14px;z-index:30;height:30px;padding:0 9px;border:1px solid var(--border-color,#d9dce5);border-radius:8px;background:var(--card-bg,#fff);color:var(--text-primary,#202124);font:600 12px Arial,sans-serif;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.08);";
+    b.onclick = generate;
+    main.appendChild(b);
+  }
+
+  function loadPdfLib() {
     return new Promise((resolve, reject) => {
       if (window.jspdf?.jsPDF) return resolve(window.jspdf.jsPDF);
-      const existing = document.querySelector('script[data-ff-jspdf="1"]');
-      if (existing) {
-        existing.addEventListener("load", () => resolve(window.jspdf.jsPDF));
-        existing.addEventListener("error", reject);
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = PDF_CDN;
-      script.async = true;
-      script.dataset.ffJspdf = "1";
-      script.onload = () => window.jspdf?.jsPDF ? resolve(window.jspdf.jsPDF) : reject(new Error("jsPDF não carregou"));
-      script.onerror = reject;
-      document.head.appendChild(script);
+      const s = document.createElement("script");
+      s.src = PDF_CDN;
+      s.onload = () => window.jspdf?.jsPDF ? resolve(window.jspdf.jsPDF) : reject(new Error("jsPDF não carregou"));
+      s.onerror = reject;
+      document.head.appendChild(s);
     });
   }
 
-  function addPageIfNeeded(doc, y, needed = 12) {
-    if (y + needed > 278) {
-      doc.addPage();
-      return 16;
-    }
-    return y;
-  }
-
-  function drawSection(doc, y, title, rows) {
-    y = addPageIfNeeded(doc, y, 25);
+  function addSection(doc, y, title, rows) {
+    if (y > 260) { doc.addPage(); y = 18; }
     doc.setFillColor(245, 247, 250);
-    doc.roundedRect(12, y - 6, 186, 10, 2, 2, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(40, 44, 52);
-    doc.text(title, 16, y + 1);
+    doc.roundedRect(12, y - 6, 186, 9, 2, 2, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(45, 48, 55);
+    doc.text(title, 16, y);
     y += 9;
-
     if (!rows.length) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(110, 116, 126);
-      doc.text("Nenhum pagamento pendente nesta categoria.", 16, y + 1);
-      return y + 9;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(115,120,128);
+      doc.text("Nenhum pagamento pendente nesta categoria.", 16, y);
+      return y + 10;
     }
-
-    doc.setFillColor(61, 90, 254);
-    doc.rect(12, y - 4, 186, 7, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(255, 255, 255);
-    doc.text("Descrição", 15, y + 1);
-    doc.text("Categoria", 92, y + 1);
-    doc.text("Vencimento", 137, y + 1);
-    doc.text("Valor", 180, y + 1, { align: "right" });
+    doc.setFillColor(61,90,254); doc.rect(12,y-4,186,7,"F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(255,255,255);
+    doc.text("Descrição",15,y+1); doc.text("Categoria",93,y+1); doc.text("Vencimento",139,y+1); doc.text("Valor",195,y+1,{align:"right"});
     y += 7;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    rows.forEach((r, idx) => {
-      y = addPageIfNeeded(doc, y, 10);
-      if (idx % 2 === 0) {
-        doc.setFillColor(250, 250, 251);
-        doc.rect(12, y - 4, 186, 9, "F");
-      }
-      doc.setTextColor(45, 48, 55);
-      const desc = doc.splitTextToSize(String(r.descricao || "—"), 72)[0];
-      const cat = doc.splitTextToSize(String(r.categoria || "—"), 40)[0];
-      doc.text(desc, 15, y + 1);
-      doc.text(cat, 92, y + 1);
-      doc.text(dateBR(r.vencimento), 137, y + 1);
-      doc.text(money(r.valor), 195, y + 1, { align: "right" });
+    rows.forEach((r,i) => {
+      if (y > 277) { doc.addPage(); y = 18; }
+      if (i % 2 === 0) { doc.setFillColor(250,250,251); doc.rect(12,y-4,186,9,"F"); }
+      doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(48,50,56);
+      doc.text(doc.splitTextToSize(String(r.descricao || "—"),72)[0],15,y+1);
+      doc.text(doc.splitTextToSize(String(r.categoria || "—"),40)[0],93,y+1);
+      doc.text(dateBR(r.vencimento),139,y+1);
+      doc.text(money(r.valor),195,y+1,{align:"right"});
       y += 9;
     });
     return y + 5;
   }
 
-  function normalizeRows(data, mk) {
-    const fixas = data.fixas.map(x => ({
-      descricao: field(x, ["descricao", "nome", "titulo"], "Conta fixa"),
-      categoria: field(x, ["categoria", "tipo"], "Fixa"),
-      vencimento: field(x, ["vencimento", "dataVencimento", "data"], ""),
-      valor: field(x, ["valor", "valorTotal", "valorParcela"], 0)
-    }));
-
-    const despesas = data.despesas.map(x => ({
-      descricao: field(x, ["descricao", "nome", "titulo"], "Despesa"),
-      categoria: field(x, ["categoria", "tipo"], "Despesa"),
-      vencimento: field(x, ["vencimento", "dataVencimento", "data"], ""),
-      valor: field(x, ["valor", "valorTotal"], 0)
-    }));
-
-    const parcelamentos = data.parcelamentos.map(x => {
-      const parcela = typeof Store.getInstallmentForMonth === "function" ? Store.getInstallmentForMonth(x, mk) : field(x, ["parcelaAtual"], "");
-      return {
-        descricao: `${field(x, ["descricao", "nome", "titulo"], "Parcelamento")} — parcela ${parcela}/${field(x, ["qtdTotal", "totalParcelas"], "?")}`,
-        categoria: field(x, ["categoria", "tipo"], "Parcelado"),
-        vencimento: getInstallmentDate(x, mk),
-        valor: field(x, ["valorParcela", "valor", "valorMensal"], 0)
-      };
-    });
-
-    const dividas = data.dividas.map(x => ({
-      descricao: field(x, ["descricao", "credor", "nome", "titulo"], "Dívida"),
-      categoria: "Dívida",
-      vencimento: field(x, ["dataVencimento", "vencimento", "data"], ""),
-      valor: field(x, ["valorRestante", "valorAtual", "valor"], 0)
-    }));
-
-    return { fixas, despesas, parcelamentos, dividas };
-  }
-
-  async function generatePDF() {
-    if (typeof Store === "undefined" || typeof App === "undefined") return;
-    const mk = App.selectedMonth;
-    const raw = collect(mk);
-    const rows = normalizeRows(raw, mk);
-    const total = [...rows.fixas, ...rows.despesas, ...rows.parcelamentos, ...rows.dividas]
-      .reduce((sum, x) => sum + num(x.valor), 0);
-
-    const btn = document.getElementById(RESUMO_BTN_ID);
-    if (btn) { btn.disabled = true; btn.style.opacity = ".65"; btn.querySelectorAll("span")[1].textContent = "Gerando…"; }
-
+  async function generate() {
+    const btn = document.getElementById(BTN_ID);
     try {
-      const jsPDF = await loadJsPDF();
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      doc.setProperties({ title: `Resumo de pagamentos — ${monthName(mk)}`, subject: "Pagamentos pendentes do mês" });
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(17);
-      doc.setTextColor(35, 38, 45);
-      doc.text("Resumo de pagamentos", 12, 18);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(105, 110, 120);
-      doc.text(monthName(mk), 12, 25);
-      doc.text(`Total pendente: ${money(total)}`, 195, 25, { align: "right" });
-
-      let y = 37;
-      y = drawSection(doc, y, "CONTAS FIXAS", rows.fixas);
-      y = drawSection(doc, y, "DESPESAS", rows.despesas);
-      y = drawSection(doc, y, "PARCELAMENTOS", rows.parcelamentos);
-      if (rows.dividas.length) y = drawSection(doc, y, "DÍVIDAS", rows.dividas);
-
-      const pages = doc.internal.getNumberOfPages();
-      for (let p = 1; p <= pages; p++) {
-        doc.setPage(p);
-        doc.setDrawColor(225, 227, 232);
-        doc.line(12, 286, 198, 286);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(130, 134, 142);
-        doc.text("Gerado pelo Finanças Família", 12, 291);
-        doc.text(`${p}/${pages}`, 198, 291, { align: "right" });
-      }
-
+      const jsPDF = await loadPdfLib();
+      const mk = App.selectedMonth;
+      const rows = normalize(collect(mk), mk);
+      const all = [...rows.fixas,...rows.despesas,...rows.parcelamentos,...rows.dividas];
+      const total = all.reduce((s,x)=>s+num(x.valor),0);
+      if (btn) { btn.disabled = true; btn.textContent = "Gerando…"; }
+      const doc = new jsPDF({unit:"mm",format:"a4"});
+      doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(35,38,45);
+      doc.text("Resumo de pagamentos",12,18);
+      doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(105,110,120);
+      doc.text(monthName(mk),12,24); doc.text(`Total pendente: ${money(total)}`,198,24,{align:"right"});
+      let y=36;
+      y=addSection(doc,y,"CONTAS FIXAS",rows.fixas);
+      y=addSection(doc,y,"DESPESAS",rows.despesas);
+      y=addSection(doc,y,"PARCELAMENTOS",rows.parcelamentos);
+      if(rows.dividas.length) y=addSection(doc,y,"DÍVIDAS",rows.dividas);
       doc.save(`resumo-pagamentos-${mk}.pdf`);
       if (typeof Utils !== "undefined" && Utils.toast) Utils.toast("Resumo PDF gerado ✓");
-    } catch (err) {
-      console.error("Erro ao gerar resumo PDF:", err);
-      if (typeof Utils !== "undefined" && Utils.toast) Utils.toast("Não foi possível gerar o PDF.");
+    } catch(e) {
+      console.error(e);
       alert("Não foi possível gerar o PDF. Verifique sua conexão com a internet e tente novamente.");
     } finally {
-      const b = document.getElementById(RESUMO_BTN_ID);
-      if (b) { b.disabled = false; b.style.opacity = "1"; b.querySelectorAll("span")[1].textContent = "Resumo"; }
+      if(btn){btn.disabled=false;btn.textContent="▤ Resumo";}
     }
   }
 
-  // O Dashboard é renderizado por pages.js. Este pequeno observador apenas
-  // recoloca o botão após cada renderização/troca de mês, sem tocar no layout existente.
-  function install() {
-    const originalRender = window.Pages && Pages.render;
-    if (originalRender && !Pages.__ffResumoWrapped) {
-      Pages.render = function () {
-        const result = originalRender.apply(this, arguments);
-        setTimeout(injectButton, 0);
-        setTimeout(injectButton, 80);
-        return result;
-      };
-      Pages.__ffResumoWrapped = true;
-    }
-    setTimeout(injectButton, 120);
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install);
-  else install();
+  App.injectResumoButton = inject;
+  setTimeout(inject, 200);
 })();
