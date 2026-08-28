@@ -71,6 +71,19 @@ const Pages={
     this.header(main,
       isNow?`Olá! 👋`:`📅 ${Utils.monthLabel(mk)}`,
       `Resumo de ${Utils.monthLabel(mk)}${!isNow?" — modo consulta":""}`);
+
+    // Botão "Gerar Resumo" (PDF do que falta pagar) — canto superior direito
+    const phHeader=main.querySelector(".page-header");
+    if(phHeader){
+      const btnResumo=document.createElement("button");
+      btnResumo.className="btn btn-secondary btn-sm";
+      btnResumo.style.cssText="flex-shrink:0;white-space:nowrap;";
+      btnResumo.title="Gerar resumo em PDF do que falta pagar este mês";
+      btnResumo.innerHTML="📄 Gerar Resumo";
+      btnResumo.onclick=()=>Actions.gerarResumoPagar();
+      phHeader.appendChild(btnResumo);
+    }
+
     this.monthSelector(main);
 
     if(!isNow){

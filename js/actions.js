@@ -270,6 +270,86 @@ const Actions={
     Pages.render(App.currentPage);
   },
 
+  // ═══ RESUMO A PAGAR (PDF) ═══════════════════════════════════
+  // Gera um extrato (via impressão do navegador → "Salvar como PDF")
+  // apenas com o que ainda falta pagar no mês selecionado, separado
+  // por Despesas / Contas Fixas / Parcelamentos.
+  gerarResumoPagar(){
+    const mk=App.selectedMonth;
+    const despesas=Store.monthDespesas(mk).filter(d=>d.pago===false);
+    const fixas=Store.monthFixedBills(mk).filter(f=>!f.pago);
+    const parc=Store.monthParcelamentos(mk).filter(p=>!Store.isParcelamentoPago(p.id,mk));
+
+    const linha=(nome,categoria,valor,vencimento)=>`
+      <tr>
+        <td>${Utils.escapeHtml(nome||"—")}</td>
+        <td>${Utils.escapeHtml(categoria||"—")}</td>
+        <td class="valor">${Utils.brl(valor)}</td>
+        <td>${Utils.escapeHtml(vencimento||"—")}</td>
+      </tr>`;
+
+    const secao=(titulo,itens,linhasHtml,total)=>{
+      if(!itens.length)return`<h2>${titulo}</h2><p class="vazio">Nada em aberto por aqui 🎉</p>`;
+      return`
+        <h2>${titulo}</h2>
+        <table>
+          <thead><tr><th>Nome</th><th>Categoria</th><th class="valor">Valor</th><th>Vencimento</th></tr></thead>
+          <tbody>${linhasHtml}</tbody>
+          <tfoot><tr><td colspan="2">Total em aberto</td><td class="valor">${Utils.brl(total)}</td><td></td></tr></tfoot>
+        </table>`;
+    };
+
+    const linhasDesp=despesas.map(d=>linha(d.nome,d.categoria,d.valor,Utils.fmtDateFull(d.data))).join("");
+    const totalDesp=Store.sum(despesas);
+
+    const linhasFixas=fixas.map(f=>linha(f.nome,f.categoria,f.valor,`Dia ${f.diaVencimento}`)).join("");
+    const totalFixas=Store.sum(fixas);
+
+    const linhasParc=parc.map(p=>{
+      const num=Store.getInstallmentForMonth(p,mk),total=Number(p.qtdTotal)||1;
+      const venc=p.diaVencimento?`Dia ${p.diaVencimento}`:Utils.fmtDateFull(p.dataFinal);
+      return linha(p.nome,`Parcela ${num}/${total}`,p.valorParcela,venc);
+    }).join("");
+    const totalParc=parc.reduce((s,p)=>s+Number(p.valorParcela||0),0);
+
+    const totalGeral=totalDesp+totalFixas+totalParc;
+    const agora=new Date();
+
+    const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Resumo a Pagar — ${Utils.monthLabel(mk)}</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:24px;}
+  h1{font-size:20px;margin:0 0 4px;}
+  .sub{color:#555;font-size:13px;margin-bottom:20px;}
+  h2{font-size:15px;margin:22px 0 8px;padding-bottom:4px;border-bottom:2px solid #3D5AFE;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px;}
+  th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;}
+  th{background:#f0f2f8;font-weight:700;}
+  td.valor,th.valor{text-align:right;}
+  tfoot td{font-weight:700;background:#fafafa;}
+  .vazio{font-size:12.5px;color:#777;margin:4px 0 0;}
+  .total-geral{margin-top:24px;font-size:16px;font-weight:700;text-align:right;
+    border-top:2px solid #1a1a1a;padding-top:10px;}
+  @media print{ body{margin:10mm;} }
+</style></head>
+<body>
+  <h1>📋 Resumo do que falta pagar</h1>
+  <div class="sub">${Utils.monthLabel(mk)} · gerado em ${agora.toLocaleDateString("pt-BR")} às ${agora.toLocaleTimeString("pt-BR")}</div>
+
+  ${secao("💸 Despesas",despesas,linhasDesp,totalDesp)}
+  ${secao("🏠 Contas Fixas",fixas,linhasFixas,totalFixas)}
+  ${secao("🧾 Parcelamentos",parc,linhasParc,totalParc)}
+
+  <div class="total-geral">Total ainda a pagar: ${Utils.brl(totalGeral)}</div>
+</body></html>`;
+
+    const win=window.open("","_blank");
+    if(!win){Utils.toast("Permita pop-ups para gerar o resumo em PDF");return;}
+    win.document.open();win.document.write(html);win.document.close();
+    setTimeout(()=>{try{win.focus();win.print();}catch(e){}},350);
+  },
+
   // ═══ GENÉRICO ═══════════════════════════════════════════════
   remove(col,sheet,id){
     if(!confirm("Excluir este item?"))return;
