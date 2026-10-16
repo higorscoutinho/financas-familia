@@ -71,19 +71,6 @@ const Pages={
     this.header(main,
       isNow?`Olá! 👋`:`📅 ${Utils.monthLabel(mk)}`,
       `Resumo de ${Utils.monthLabel(mk)}${!isNow?" — modo consulta":""}`);
-
-    // Botão "Gerar Resumo" (PDF do que falta pagar) — canto superior direito
-    const phHeader=main.querySelector(".page-header");
-    if(phHeader){
-      const btnResumo=document.createElement("button");
-      btnResumo.className="btn btn-secondary btn-sm";
-      btnResumo.style.cssText="flex-shrink:0;white-space:nowrap;";
-      btnResumo.title="Gerar resumo em PDF do que falta pagar este mês";
-      btnResumo.innerHTML="📄 Gerar Resumo";
-      btnResumo.onclick=()=>Actions.gerarResumoPagar();
-      phHeader.appendChild(btnResumo);
-    }
-
     this.monthSelector(main);
 
     if(!isNow){
@@ -331,6 +318,51 @@ const Pages={
   },
 
   // ═══ DÍVIDAS ════════════════════════════════════════════════
+  // Contas atrasadas (derivadas de Contas Fixas e Despesas pendentes já vencidas)
+  atrasadasLista(){
+    const _n=new Date(),hoje=`${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,"0")}-${String(_n.getDate()).padStart(2,"0")}`,out=[];
+    Store.data.contasFixas.forEach(f=>{
+      if(f.pago||f.investimentoId)return;
+      const mk=Store._normMk(f.mesReferencia);if(!mk)return;
+      const[y,m]=mk.split("-").map(Number);
+      const dia=Math.min(Number(f.diaVencimento)||1,new Date(y,m,0).getDate());
+      const venc=`${mk}-${String(dia).padStart(2,"0")}`;
+      if(venc>=hoje)return;
+      out.push({tipo:"fixa",id:f.id,nome:f.nome,valor:Number(f.valor)||0,venc,mk,detalhe:f.detalhe||""});
+    });
+    Store.data.despesas.forEach(d=>{
+      if(d.pago!==false||!d.data||d.data>=hoje)return;
+      out.push({tipo:"despesa",id:d.id,nome:d.nome,valor:Number(d.valor)||0,venc:d.data,mk:String(d.data).slice(0,7),detalhe:d.detalhe||""});
+    });
+    out.forEach(a=>{a.dias=-Utils.diasAteData(a.venc);});
+    return out.sort((a,b)=>b.dias-a.dias);
+  },
+
+  atrasadasCard(){
+    const lista=this.atrasadasLista();
+    const total=lista.reduce((s,a)=>s+a.valor,0);
+    const card=document.createElement("div");card.className="card";card.style.marginTop="16px";
+    const linhas=lista.map(a=>{
+      const auto=`${a.nome} · ${Utils.monthLabel(a.mk)} (${a.dias} dia${a.dias!==1?"s":""} atrasado)`;
+      return`<div class="list-row" style="flex-wrap:wrap;gap:8px;">
+        <div class="row-main" style="min-width:160px;">
+          <div class="row-title">${a.detalhe?Utils.escapeHtml(a.detalhe):Utils.escapeHtml(auto)}</div>
+          <div class="row-sub">${a.detalhe?Utils.escapeHtml(auto)+" · ":""}${a.tipo==="fixa"?"Conta fixa":"Despesa"} · venceu ${Utils.fmtDateShort(a.venc)}</div>
+        </div>
+        <span class="badge red">${a.dias}d</span>
+        <div class="row-amount neg">${Utils.brl(a.valor)}</div>
+        <button class="btn btn-sm btn-primary" onclick="${a.tipo==="fixa"?"Actions.payFixedBill":"Actions.payDespesa"}('${a.id}')">✓ Pago</button>
+        <button class="btn btn-sm btn-ghost" title="Corrigir valor / detalhar" onclick="Modals.openAtrasada('${a.tipo}','${a.id}')">✏️</button>
+      </div>`;
+    }).join("");
+    card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
+        <h3>⏰ Atrasadas</h3>
+        <div><span style="color:var(--color-text-muted);font-size:13px;">${lista.length} conta${lista.length!==1?"s":""} · total </span><strong style="color:var(--color-negative);font-size:18px;">${Utils.brl(total)}</strong></div>
+      </div>
+      ${linhas||`<div class="empty-state"><div class="emoji">🎉</div><p>Nenhuma conta atrasada!</p></div>`}`;
+    return card;
+  },
+
   dividas(main){
     const stats=Store.dividaStats();
     this.header(main,"Dívidas","Controle do seu passivo financeiro");
@@ -343,6 +375,7 @@ const Pages={
       <div class="card"><div class="stat-icon green">✅</div><h3>Total quitado</h3><div class="big-number" style="color:var(--color-positive);">${Utils.brl(stats.totalQuitado)}</div></div>
       ${stats.maior?`<div class="card"><div class="stat-icon red">📊</div><h3>Maior dívida</h3><div class="big-number" style="font-size:18px;">${Utils.escapeHtml(stats.maior.nome)}</div><div class="row-sub">${Utils.brl(stats.maior.valorRestante)}</div></div>`:""}`;
     main.appendChild(resumo);
+    main.appendChild(this.atrasadasCard());
     const totalOrig=Store.data.dividas.reduce((s,d)=>s+Number(d.valorOriginal||0),0);
     const totalQuit=Store.data.dividas.filter(d=>d.status==="quitada").reduce((s,d)=>s+Number(d.valorOriginal||0),0);
     if(totalOrig>0){

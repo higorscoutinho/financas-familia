@@ -169,6 +169,20 @@ const Modals={
     });
   },
 
+  openAtrasada(tipo,id){
+    const col=tipo==="fixa"?"contasFixas":"despesas";
+    const sheet=tipo==="fixa"?"ContasFixas":"Despesas";
+    const item=Store.data[col].find(x=>x.id===id);if(!item)return;
+    this.open("Conta atrasada",`
+      <div class="field"><label>Conta</label><input value="${Utils.escapeHtml(item.nome||"")}" disabled></div>
+      <div class="field"><label>Valor atualizado (R$) — com juros/multa</label><input name="valor" type="number" step="0.01" min="0.01" required value="${item.valor||""}" autofocus></div>
+      <div class="field"><label>Detalhe</label><input name="detalhe" value="${Utils.escapeHtml(item.detalhe||"")}" placeholder="Ex: Luz CPFL mês 07 (90 dias atrasado)"></div>
+    `,fd=>{
+      Store.update(col,sheet,id,{valor:Number(fd.get("valor")),detalhe:(fd.get("detalhe")||"").trim()});
+      Utils.toast("Atualizado ✓");Modals.closeAll();Pages.render(App.currentPage);
+    });
+  },
+
   openDivida(id){
     const item=id?Store.data.dividas.find(d=>d.id===id):null;
     const sts=[{v:"em_aberto",l:"Em aberto"},{v:"em_atraso",l:"Em atraso"},{v:"negociada",l:"Negociada"},{v:"parcelada",l:"Parcelada"},{v:"quitada",l:"Quitada"}];

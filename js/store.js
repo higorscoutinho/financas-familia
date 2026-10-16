@@ -128,7 +128,7 @@ const Store={
     if(jaExiste)return{jaExiste:true,mk:novoMk};
     const novo={
       ...base,id:Utils.uid("fix"),mesReferencia:novoMk,
-      pago:false,dataPagamento:"",horaPagamento:"",
+      pago:false,dataPagamento:"",horaPagamento:"",detalhe:"",
     };
     delete novo.investimentoId;
     this.data.contasFixas.push(novo);
